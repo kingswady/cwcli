@@ -20,7 +20,7 @@ var layers = map[string][]string{
 	"commands":   {"config", "mcpbridge", "output", "platform", "selfupdate"},
 }
 
-const module = "github.com/kingswady/cw/internal/"
+const module = "github.com/kingswady/cwcli/internal/"
 
 func TestEachLayerOnlyUsesTheLayersBelowIt(t *testing.T) {
 	dirs, err := os.ReadDir(filepath.Join("..", "..", "internal"))

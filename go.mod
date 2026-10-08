@@ -1,4 +1,4 @@
-module github.com/kingswady/cw
+module github.com/kingswady/cwcli
 
 go 1.26.0
 

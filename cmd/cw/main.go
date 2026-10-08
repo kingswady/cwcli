@@ -6,7 +6,7 @@ package main
 import (
 	"os"
 
-	"github.com/kingswady/cw/internal/commands"
+	"github.com/kingswady/cwcli/internal/commands"
 )
 
 // version is set at build time: -ldflags "-X main.version=v1.0.0".

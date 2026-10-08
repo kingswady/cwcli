@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/kingswady/cw/internal/config"
-	"github.com/kingswady/cw/internal/output"
-	"github.com/kingswady/cw/internal/selfupdate"
+	"github.com/kingswady/cwcli/internal/config"
+	"github.com/kingswady/cwcli/internal/output"
+	"github.com/kingswady/cwcli/internal/selfupdate"
 )
 
 const (

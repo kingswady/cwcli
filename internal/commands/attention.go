@@ -7,8 +7,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/kingswady/cw/internal/output"
-	"github.com/kingswady/cw/internal/platform"
+	"github.com/kingswady/cwcli/internal/output"
+	"github.com/kingswady/cwcli/internal/platform"
 )
 
 // exitAttention is cw attention's exit code when something needs attention,

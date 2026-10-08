@@ -1,5 +1,5 @@
 # Release: push a tag (git tag v1.0.0 && git push --tags); .github/workflows/release.yml runs this.
-# Archive names carry no version so https://github.com/kingswady/cw/releases/latest/download/<name>
+# Archive names carry no version so https://github.com/kingswady/cwcli/releases/latest/download/<name>
 # always resolves — the platform's /install.sh relies on it.
 version: 2
 project_name: cw
@@ -37,4 +37,4 @@ changelog:
 release:
   github:
     owner: kingswady
-    name: cw
+    name: cwcli

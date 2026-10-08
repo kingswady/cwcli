@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kingswady/cw/internal/output"
-	"github.com/kingswady/cw/internal/platform"
+	"github.com/kingswady/cwcli/internal/output"
+	"github.com/kingswady/cwcli/internal/platform"
 )
 
 type record = map[string]any

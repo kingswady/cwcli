@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/kingswady/cw/internal/platform"
+	"github.com/kingswady/cwcli/internal/platform"
 )
 
 const DefaultURL = "https://www.cloudwady.com"

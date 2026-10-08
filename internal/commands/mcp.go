@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kingswady/cw/internal/mcpbridge"
+	"github.com/kingswady/cwcli/internal/mcpbridge"
 )
 
 // mcp serves the platform's MCP tools to a local AI client over stdio: each

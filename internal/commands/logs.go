@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kingswady/cw/internal/output"
-	"github.com/kingswady/cw/internal/platform"
+	"github.com/kingswady/cwcli/internal/output"
+	"github.com/kingswady/cwcli/internal/platform"
 )
 
 // followInterval is how often --follow asks for newer lines.

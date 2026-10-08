@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kingswady/cw/internal/config"
+	"github.com/kingswady/cwcli/internal/config"
 )
 
 func TestLoginValidatesAndSavesTheToken(t *testing.T) {

@@ -24,11 +24,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kingswady/cw/internal/platform"
+	"github.com/kingswady/cwcli/internal/platform"
 )
 
 const (
-	DefaultReleases = "https://github.com/kingswady/cw/releases"
+	DefaultReleases = "https://github.com/kingswady/cwcli/releases"
 	maxDownload     = 64 << 20 // an archive is a few MB; anything this large is wrong
 )
 

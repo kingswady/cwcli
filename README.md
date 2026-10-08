@@ -16,7 +16,7 @@ The script downloads the release for your machine, checks its SHA-256 against th
 and installs `cw` into `/usr/local/bin` if you can write there, `~/.local/bin` otherwise. It never uses sudo.
 Your platform serves the same script at its own address, and then tells you the matching `cw login --url`.
 
-Windows: download `cw_windows_amd64.zip` from the [releases](https://github.com/kingswady/cw/releases).
+Windows: download `cw_windows_amd64.zip` from the [releases](https://github.com/kingswady/cwcli/releases).
 
 From source (Go 1.26+, or Docker): `make build` → `bin/cw`; `make docker-dist` builds every platform. How the code is laid out:
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

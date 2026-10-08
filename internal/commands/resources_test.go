@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kingswady/cw/internal/output"
+	"github.com/kingswady/cwcli/internal/output"
 )
 
 var mixedApps = map[string]any{

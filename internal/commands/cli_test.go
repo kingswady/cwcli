@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kingswady/cw/internal/config"
-	"github.com/kingswady/cw/internal/platform"
+	"github.com/kingswady/cwcli/internal/config"
+	"github.com/kingswady/cwcli/internal/platform"
 )
 
 const goodToken = "cwk_test-token-0123456789"

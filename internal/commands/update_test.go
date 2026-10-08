@@ -32,7 +32,7 @@ func archiveOf(t *testing.T, binary []byte) []byte {
 	return buf.Bytes()
 }
 
-// fakeReleases answers like github.com/kingswady/cw/releases for one tag.
+// fakeReleases answers like github.com/kingswady/cwcli/releases for one tag.
 func fakeReleases(t *testing.T, latest string, binary []byte, tamper bool) (*httptest.Server, *int) {
 	t.Helper()
 	if runtime.GOOS == "windows" {

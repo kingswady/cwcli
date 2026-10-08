@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/kingswady/cw/internal/selfupdate"
+	"github.com/kingswady/cwcli/internal/selfupdate"
 )
 
 func (a *App) update(args []string) error {
