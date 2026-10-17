@@ -217,8 +217,14 @@ func yesNoColor(v string) string {
 
 // style colours one cell by its column; "-" (no value) stays plain.
 func Style(key, text string) string {
-	if fn := cellStyles[key]; fn != nil && text != "-" {
-		return Paint(fn(text), text)
+	return StyleAs(key, text, text)
+}
+
+// StyleAs paints text in the colour key gives value: a sentence about a state,
+// in that state's colour.
+func StyleAs(key, value, text string) string {
+	if fn := cellStyles[key]; fn != nil && value != "-" {
+		return Paint(fn(value), text)
 	}
 	return text
 }

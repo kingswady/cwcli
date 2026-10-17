@@ -422,12 +422,15 @@ func (a *App) writeUsage(fs *flag.FlagSet, usage, about string) func() {
 }
 
 // waitRun follows run id until it ends, printing each step as its state
-// changes. A run whose failed step will be retried has not ended.
+// changes, then what the watcher on the server reports for a backup or restore
+// (the run stays running until it does). A run whose failed step will be
+// retried has not ended.
 func (a *App) waitRun(c *platform.Client, id string, timeout time.Duration, out output.Table) error {
 	ctx, stop := a.interrupt()
 	defer stop()
 	deadline := a.clock().Add(timeout)
 	seen := map[int]string{}
+	watched := ""
 	for {
 		raw, err := c.GetContext(ctx, "/runs/"+id, nil)
 		if ctx.Err() != nil {
@@ -446,6 +449,7 @@ func (a *App) waitRun(c *platform.Client, id string, timeout time.Duration, out 
 			return err
 		}
 		a.printStepChanges(run, seen, out)
+		watched = a.printWatcherChange(run, watched, out)
 		if result, ended := runEnded(run); ended {
 			return a.reportEnd(id, run, result, out)
 		}
@@ -491,6 +495,60 @@ func (a *App) printStepChanges(run record, seen map[int]string, out output.Table
 	}
 }
 
+// printWatcherChange prints what the watcher reports when it changes, once the
+// steps have launched the work it watches; it returns what was printed last.
+func (a *App) printWatcherChange(run record, last string, out output.Table) string {
+	line := watcherLine(run, out)
+	if line == "" || line == last || !stepsFinished(run) {
+		return last
+	}
+	fmt.Fprintln(a.stdout, "  "+line)
+	return line
+}
+
+func stepsFinished(run record) bool {
+	steps := records(run["steps"])
+	for _, step := range steps {
+		if output.Text(step["state"]) != "successful" {
+			return false
+		}
+	}
+	return len(steps) > 0
+}
+
+// watcherLine is the watcher in a line: "Watcher: Dumping the database", or ""
+// for a run without one.
+func watcherLine(run record, out output.Table) string {
+	watcher, _ := run["watcher"].(record)
+	if watcher == nil {
+		return ""
+	}
+	state := output.Text(watcher["state"])
+	if progress := output.Text(watcher["progress"]); progress != "-" && state == "waiting" {
+		return out.Label("Watcher:") + " " + progress
+	}
+	words := map[string]string{
+		"waiting": "waiting for the work on the server to finish", "completed": "finished",
+		"failed": "failed", "timeout": "gave up waiting", "stopped": "stopped before it reported",
+	}
+	said, ok := words[state]
+	if !ok {
+		said = state
+	}
+	if reason := output.Text(watcher["reason"]); reason != "-" {
+		said += ": " + output.FirstLine(reason)
+	}
+	if out.Color {
+		// In the colour of the run state it amounts to.
+		tone := map[string]string{"waiting": "running", "completed": "done", "stopped": "failed"}[state]
+		if tone == "" {
+			tone = state
+		}
+		said = output.StyleAs("state", tone, said)
+	}
+	return out.Label("Watcher:") + " " + said
+}
+
 // runEnded says whether run has ended, and how: "done" or "failed".
 func runEnded(run record) (string, bool) {
 	state := output.Text(run["state"])
@@ -516,6 +574,10 @@ func (a *App) reportEnd(id string, run record, result string, out output.Table) 
 		if reason := output.Text(step["reason"]); reason != "-" {
 			fmt.Fprintf(a.stdout, "  %d. %s: %s\n", i+1, output.Text(step["name"]), output.FirstLine(reason))
 		}
+	}
+	// Every step launched fine and the work on the server failed: the watcher says why.
+	if line := watcherLine(run, out); line != "" && stepsFinished(run) {
+		fmt.Fprintln(a.stdout, "  "+line)
 	}
 	return errRunFailed
 }

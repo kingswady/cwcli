@@ -209,7 +209,8 @@ refuses (exit 2).
 - **Retry** is refused while an automatic retry is due in a few minutes (`--now` retries anyway), or when a
   newer run of the same record exists.
 
-`--wait` prints each step as its state changes and exits `0` when the run is done, `1` when it failed, `4`
+`--wait` prints each step as its state changes — and, for a backup, what the watcher on the server reports
+until it is done ("Watcher: Dumping the database") — and exits `0` when the run is done, `1` when it failed, `4`
 when it is still going after `--timeout` (default `30m`); Ctrl-C stops waiting, not the run. Without
 `--wait`, cw prints the run's id: `cw runs show <id>` follows it.
 

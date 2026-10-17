@@ -779,5 +779,8 @@ func printSteps(a *App, run record, out output.Table) error {
 		fmt.Fprintln(a.stdout, "\n"+out.Label("Why:"))
 		fmt.Fprintln(a.stdout, strings.Join(reasons, "\n"))
 	}
+	if line := watcherLine(run, out); line != "" {
+		fmt.Fprintln(a.stdout, "\n"+line)
+	}
 	return nil
 }

@@ -371,3 +371,74 @@ func TestCtrlCStopsWaitingNotTheRun(t *testing.T) {
 		t.Errorf("stderr %q", h.stderr)
 	}
 }
+
+// watched is a backup run whose steps launched the work and whose watcher reports.
+func watched(state, watcher, progress, reason string) answer {
+	reply := run(state, false, step("Backup", "successful", ""))
+	data := reply.body.(map[string]any)["data"].(map[string]any)
+	data["id"] = 41976
+	data["watcher"] = map[string]any{"state": watcher, "progress": progress, "reason": reason}
+	if progress == "" {
+		data["watcher"].(map[string]any)["progress"] = nil
+	}
+	if reason == "" {
+		data["watcher"].(map[string]any)["reason"] = nil
+	}
+	return reply
+}
+
+func TestWaitFollowsABackupThroughItsWatcher(t *testing.T) {
+	answers := map[string][]answer{
+		"GET /apps":           {appsList},
+		"GET /apps/7":         {ok(200, stagingApp)},
+		"POST /apps/7/backup": {ok(202, map[string]any{"state": "started", "run_id": 41976, "backup_id": 9482})},
+		"GET /runs/41976": {
+			watched("running", "waiting", "", ""),
+			watched("running", "waiting", "Dumping the database", ""),
+			watched("running", "waiting", "Dumping the database", ""), // unchanged: not printed again
+			watched("running", "waiting", "Packing the archive", ""),
+			watched("done", "completed", "", ""),
+		},
+	}
+	server, _ := newWriteAPI(t, answers)
+	h := writeHarness(t, server, false, "")
+	h.app.wait = func(context.Context, time.Duration) bool { return true }
+	if code := h.run("backup", "shop", "--yes", "--wait"); code != 0 {
+		t.Fatalf("exit %d: %s", code, h.stderr)
+	}
+	want := strings.Join([]string{
+		"  1. Backup  successful",
+		"  Watcher: waiting for the work on the server to finish",
+		"  Watcher: Dumping the database",
+		"  Watcher: Packing the archive",
+		"  Watcher: finished",
+		"Run 41976 done.",
+	}, "\n")
+	if !strings.Contains(h.stdout.String(), want) {
+		t.Errorf("want\n%s\nin\n%s", want, h.stdout)
+	}
+
+	// Every step launched fine; the work on the server failed: the watcher says why.
+	answers["GET /runs/41976"] = []answer{watched("error", "failed", "", "Success marker not found or invalid")}
+	failing, _ := newWriteAPI(t, answers)
+	h = writeHarness(t, failing, false, "")
+	if code := h.run("backup", "shop", "--yes", "--wait"); code != 1 {
+		t.Fatalf("exit %d: %s", code, h.stdout)
+	}
+	if got := strings.Count(h.stdout.String(), "Watcher: failed: Success marker not found or invalid"); got != 2 {
+		t.Errorf("want the failure as it happened and in the end report, got %d in\n%s", got, h.stdout)
+	}
+}
+
+func TestARunShowsItsWatcher(t *testing.T) {
+	server, _ := newWriteAPI(t, map[string][]answer{
+		"GET /runs/41976": {watched("running", "waiting", "Copying the filestore", "")},
+	})
+	h := newHarness(t, server)
+	if code := h.run("runs", "show", "41976"); code != 0 {
+		t.Fatalf("exit %d: %s", code, h.stderr)
+	}
+	if !strings.Contains(h.stdout.String(), "\nWatcher: Copying the filestore\n") {
+		t.Errorf("stdout\n%s", h.stdout)
+	}
+}
