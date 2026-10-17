@@ -63,13 +63,16 @@ homebrew_casks:
       git:
         url: git@github.com:kingswady/homebrew-tap.git
         private_key: "{{ .Env.HOMEBREW_TAP_DEPLOY_KEY }}"
-    hooks:
-      post:
-        # The binary is not notarized: without this macOS refuses to run what Homebrew downloaded.
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/cw"]
-          end
+    # The binary is not notarized: unless its quarantine is cleared, macOS refuses
+    # to run what Homebrew downloaded. Homebrew 7 runs install steps, not Ruby
+    # hooks (a postflight block warns); {{staged_path}} is Homebrew's token,
+    # escaped from GoReleaser's own templates.
+    custom_block: |
+      postflight_steps do
+        on_macos do
+          run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ "{{staged_path}}" }}/cw"]
+        end
+      end
 
 changelog:
   sort: asc
