@@ -15,7 +15,7 @@ cmd/cw                    entry point: builds commands.App with the version, run
 
 | Package      | Owns                                                                                     | May import                          |
 | ------------ | ---------------------------------------------------------------------------------------- | ----------------------------------- |
-| `commands`   | every command (`account`, `resources` + `details`, `restorepoints`, `logs`, `attention`, `completion`, `update`, `mcp`) and `cli.go` | all of the below |
+| `commands`   | every command (`account`, `resources` + `details`, `restorepoints`, `logs`, `attention`, `writes`, `completion`, `update`, `mcp`) and `cli.go` | all of the below |
 | `mcpbridge`  | `Bridge`: forwards an AI client's messages with the MCP headers the platform checks       | —                                   |
 | `selfupdate` | `LatestTag`, `Fetch`, `ReplaceExecutable`, `Newer`                                         | `platform`                          |
 | `config`     | `Config`, `Resolve` (flag → `CW_URL` → saved → default), `SecretStore`                     | `platform`                          |
@@ -37,6 +37,10 @@ cmd/cw                    entry point: builds commands.App with the version, run
 - **Tab completion** — `commands/completion.go`. The scripts ask `cw __complete <words>`, which reads a
   command's flags by running it with `-h` on a quiet copy of the app (`flagsDefined`): a command must define
   its flags before it does anything else. Fixed flag values live in `flagValues`. It never calls the platform.
+- **A command that changes something** — `commands/writes.go`: `confirm` (y/N, a production app by its name,
+  `--yes` without a terminal), `postWrite` (one `Idempotency-Key` per command, reused on its own retries of a
+  429 or a lost connection: `platform.NetworkError`), `writeError` (a refusal's code and `reason` in words) and
+  `waitRun` (`--wait`: the run polled until it ends; exit 1 failed, 4 still going, 130 Ctrl-C).
 - **A name lookup** — `resolveID` in `commands/resources.go`, the one place a name becomes an id. It asks the
   list with the lookup's `scope` (namespace, `--all`, the filters given) and, where the resource has a
   `nameSearch` parameter (apps: `search`), only for the names containing it; it keeps the exact matches, any
@@ -49,8 +53,9 @@ cmd/cw                    entry point: builds commands.App with the version, run
 
 ## Conventions
 
-- **Exit codes:** `0` success, `1` the platform refused or failed, `2` a mistake on the command line (`usagef`,
-  or an HTTP 400), `3` `cw attention` found something.
+- **Exit codes:** `0` success, `1` the platform refused or failed (or a followed run failed), `2` a mistake on
+  the command line (`usagef`, or an HTTP 400), `3` `cw attention` found something, `4` `--wait` gave up on a run
+  still going, `130` Ctrl-C.
 - **A token goes only where the user sent it:** https (or this machine), no redirects, never on the command line.
 - **Colour only in a terminal**, unless `--color always`; `NO_COLOR` is honoured; JSON is never coloured.
 - **What the platform says is `output.Clean` before it is printed** — no control characters but tab and

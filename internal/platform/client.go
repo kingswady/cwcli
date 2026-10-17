@@ -28,6 +28,8 @@ type APIError struct {
 	Status  int
 	Code    string
 	Message string
+	// Reason refines Code where the platform gives one (a retry refused: newer_run, …).
+	Reason string
 	// RetryAfter is how long a rate-limited caller should wait (Retry-After), else 0.
 	RetryAfter time.Duration
 }
@@ -64,31 +66,61 @@ func (c *Client) GetContext(ctx context.Context, path string, query url.Values) 
 	if len(query) > 0 {
 		target += "?" + query.Encode()
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	data, _, err := c.do(ctx, http.MethodGet, target, nil, nil)
+	return data, err
+}
+
+// Post asks the platform to change something: body as JSON, the request's
+// Idempotency-Key (the same key again returns the first answer and changes
+// nothing). It returns the "data" member and the HTTP status (202 when the
+// change started, 200 when there was nothing to start).
+func (c *Client) Post(ctx context.Context, path string, body any, key string) (json.RawMessage, int, error) {
+	payload, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
+	}
+	headers := map[string]string{"Content-Type": "application/json", "Idempotency-Key": key}
+	return c.do(ctx, http.MethodPost, c.Base+"/api/v1"+path, payload, headers)
+}
+
+func (c *Client) do(ctx context.Context, method, target string, body []byte, headers map[string]string) (json.RawMessage, int, error) {
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, target, reader)
+	if err != nil {
+		return nil, 0, err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.Token)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", c.UserAgent)
+	for name, value := range headers {
+		req.Header.Set(name, value)
+	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, 0, ctx.Err()
 		}
-		return nil, fmt.Errorf("cannot reach %s: %w", c.Base, err)
+		return nil, 0, &NetworkError{Base: c.Base, Err: err}
 	}
 	defer resp.Body.Close()
 	if expires := resp.Header.Get("X-Token-Expires-At"); expires != "" {
 		c.TokenExpires = expires
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, 0, ctx.Err()
 		}
-		return nil, fmt.Errorf("reading the response from %s: %w", c.Base, err)
+		return nil, 0, &NetworkError{Base: c.Base, Err: fmt.Errorf("reading the response: %w", err)}
 	}
+	answer, err := c.decodeAnswer(resp, data)
+	return answer, resp.StatusCode, err
+}
+
+func (c *Client) decodeAnswer(resp *http.Response, body []byte) (json.RawMessage, error) {
 	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 		return nil, &APIError{
 			Status: resp.StatusCode,
@@ -102,6 +134,7 @@ func (c *Client) GetContext(ctx context.Context, path string, query url.Values) 
 		Error *struct {
 			Code    string `json:"code"`
 			Message string `json:"message"`
+			Reason  string `json:"reason"`
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(body, &envelope); err != nil {
@@ -114,14 +147,24 @@ func (c *Client) GetContext(ctx context.Context, path string, query url.Values) 
 	if envelope.Error != nil {
 		return nil, &APIError{
 			Status: resp.StatusCode, Code: envelope.Error.Code, Message: envelope.Error.Message,
-			RetryAfter: retryAfter(resp),
+			Reason: envelope.Error.Reason, RetryAfter: retryAfter(resp),
 		}
 	}
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
 		return nil, &APIError{Status: resp.StatusCode, Code: "http_error", Message: fmt.Sprintf("HTTP %d from %s", resp.StatusCode, c.Base)}
 	}
 	return envelope.Data, nil
 }
+
+// NetworkError is a request that never got an answer: the platform could not be
+// reached, or the connection broke. Asking again may work.
+type NetworkError struct {
+	Base string
+	Err  error
+}
+
+func (e *NetworkError) Error() string { return fmt.Sprintf("cannot reach %s: %v", e.Base, e.Err) }
+func (e *NetworkError) Unwrap() error { return e.Err }
 
 // Decode reads JSON numbers as json.Number so ids print as integers.
 func Decode(raw json.RawMessage, out any) error {

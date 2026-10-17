@@ -79,6 +79,7 @@ var flagValues = map[string][]string{
 	"color":   {"auto", "always", "never"},
 	"source":  {"main", "setup", "restore", "backup", "transfer", "upgrade", "script", "all"},
 	"ssl":     {"valid", "expiring_soon", "expired", "unknown"},
+	"format":  {"zip", "dump"},
 }
 
 func (a *App) candidates(words []string) []string {
@@ -90,6 +91,10 @@ func (a *App) candidates(words []string) []string {
 		return withPrefix(commandNames(), current)
 	}
 	command := before[0]
+	if command == "runs" && len(before) > 1 && before[1] == "retry" {
+		// cw runs retry: its own flags, after the subcommand word.
+		command, before = "runs retry", append([]string{"runs retry"}, before[2:]...)
+	}
 	fs := a.flagsOf(command)
 	if fs == nil {
 		return nil
@@ -108,6 +113,8 @@ func (a *App) candidates(words []string) []string {
 	switch positional := positionals(fs, before[1:]); {
 	case command == "completion" && len(positional) == 0:
 		return withPrefix([]string{"bash", "zsh", "fish"}, current)
+	case command == "runs" && len(positional) == 0:
+		return withPrefix([]string{"retry", "show"}, current)
 	case len(positional) == 0:
 		if res := resourceNamed(command); res != nil && !res.noShow {
 			return withPrefix([]string{"show"}, current)
@@ -120,7 +127,7 @@ func (a *App) candidates(words []string) []string {
 func commandNames() []string {
 	names := []string{
 		"login", "logout", "whoami", "namespaces", "use", "update", "completion",
-		"attention", "restore-points", "logs", "mcp", "help", "version",
+		"attention", "restore-points", "logs", "mcp", "help", "version", "backup", "restart",
 	}
 	for _, res := range resources {
 		names = append(names, res.name)
@@ -144,7 +151,11 @@ func (a *App) flagsOf(command string) *flag.FlagSet {
 			defined = fs
 		}
 	}
-	quiet.dispatch(command, []string{"-h"})
+	name, args := command, []string{"-h"}
+	if command == "runs retry" {
+		name, args = "runs", []string{"retry", "-h"}
+	}
+	quiet.dispatch(name, args)
 	return defined
 }
 

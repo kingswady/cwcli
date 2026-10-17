@@ -1,7 +1,8 @@
 # cw — the platform from your terminal
 
 `cw` reads your projects, apps, servers, installed services, backups, restore points and runs through the
-platform's customer API. It is read-only: nothing you run with it can change, deploy or delete anything.
+platform's customer API, and backs an app up, restarts it or retries a failed run when you ask it to (see
+[Changes](#changes)). Nothing else it does changes anything.
 
 ## Install
 
@@ -189,6 +190,37 @@ The app's logs, from the platform's log store — only that app's lines, secrets
 `main` (the Odoo log, the default), `setup`, `restore`, `backup`, `transfer`, `upgrade`, `script`, or `all`. `--grep`
 matches text, any case. The token needs **Logs** in what it can read.
 
+## Changes
+
+```bash
+cw backup shop                   # back the app up now (--format dump: the database only)
+cw restart shop                  # restart it
+cw runs retry 4812               # run a failed run again, from the step that failed
+cw restart shop --wait           # …and follow the run until it ends
+```
+
+Each asks first, naming the app, its project and environment: `Restart shop (Shop / staging)? [y/N]`. A
+production app is confirmed by typing its name. From a script — no terminal to ask in — pass `--yes`, or cw
+refuses (exit 2).
+
+- **Backup** does what the dashboard's Backup does. When a backup of the app already runs, cw says so and
+  starts nothing; `--wait` then follows that one.
+- **Restart** is refused while an update, a backup or a restore of the app runs: it never cancels them.
+- **Retry** is refused while an automatic retry is due in a few minutes (`--now` retries anyway), or when a
+  newer run of the same record exists.
+
+`--wait` prints each step as its state changes and exits `0` when the run is done, `1` when it failed, `4`
+when it is still going after `--timeout` (default `30m`); Ctrl-C stops waiting, not the run. Without
+`--wait`, cw prints the run's id: `cw runs show <id>` follows it.
+
+A change is sent once: cw gives each command one request key and reuses it when it has to ask again (a rate
+limit, a lost connection), so the platform acts once however often the request arrives.
+
+The token needs the function ticked in My Settings → API Tokens (they are listed under Changes, unticked by
+default, and a token that can make changes lives at most 30 days). What a change may touch is your access
+level in that environment, as in the dashboard. Platforms open changes through the API to their customers
+separately from reading; until then cw says they are not open to your account.
+
 ## AI agents (MCP)
 
 `cw mcp` serves the platform's tools to an AI client over stdio, with the token you logged in with:
@@ -214,10 +246,12 @@ export CW_TOKEN=cwk_…        # from your CI secret store
 cw runs --app shop --state error --json
 ```
 
-`CW_TOKEN` overrides the saved token; `CW_URL` the saved platform. A command the platform does not offer yet
+`CW_TOKEN` overrides the saved token; `CW_URL` the saved platform. A change from CI needs `--yes`
+(`cw backup shop --yes --wait`). A command the platform does not offer yet
 (it runs an older version) says so. A token made before a function existed does not hold it: edit the token in
 My Settings → API Tokens and tick it. Exit codes: `0` success, `1` the platform
-refused or failed, `2` a mistake on the command line, `3` `cw attention` found something.
+refused or failed (or a run followed with `--wait` failed), `2` a mistake on the command line, `3` `cw attention`
+found something, `4` a run followed with `--wait` was still going at `--timeout`.
 
 ## License
 

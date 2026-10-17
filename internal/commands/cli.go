@@ -254,6 +254,13 @@ func (a *App) dispatch(name string, rest []string) int {
 		return a.exit(a.restorePoints(rest))
 	case "completion":
 		return a.exit(a.completion(rest))
+	case "backup":
+		return a.exit(a.backup(rest))
+	case "restart":
+		return a.exit(a.restart(rest))
+	}
+	if name == "runs" && len(rest) > 0 && rest[0] == "retry" {
+		return a.exit(a.runsRetry(rest[1:]))
 	}
 	if res := resourceNamed(name); res != nil {
 		return a.exit(a.resource(res, rest))
@@ -271,6 +278,13 @@ func (a *App) exit(err error) int {
 		return 0
 	case errors.Is(err, errNeedsAttention):
 		return exitAttention
+	// --wait already said how the run ended.
+	case errors.Is(err, errRunFailed):
+		return 1
+	case errors.Is(err, errStillRunning):
+		return exitStillRunning
+	case errors.Is(err, errStoppedWaiting):
+		return exitInterrupted
 	case errors.As(err, &usage), errors.As(err, &refused) && refused.Status == http.StatusBadRequest:
 		// A 400 is the platform saying the command line was wrong (--limit 0).
 		fmt.Fprintln(a.stderr, "cw:", output.Clean(err.Error()))
@@ -283,7 +297,8 @@ func (a *App) exit(err error) int {
 }
 
 func (a *App) usage(w io.Writer) {
-	fmt.Fprint(w, `cw reads your projects, apps, servers, backups and runs from the terminal.
+	fmt.Fprint(w, `cw reads your projects, apps, servers, backups and runs from the terminal — and backs up,
+restarts and retries them.
 
 Usage: cw <command> [flags]
 
@@ -307,6 +322,11 @@ Read
   restore-points  An app's changes           cw restore-points <app>: commits, modules, the way back
   runs            List recent runs           cw runs show <id>
   logs            An app's logs              cw logs <app> [--since 1h] [--grep …] [--follow] [--source …]
+
+Change (asks first; --yes from a script; the token needs the function ticked)
+  backup          Back up an app now         cw backup <app> [--format dump] [--wait]
+  restart         Restart an app             cw restart <app> [--wait]
+  runs retry      Run a failed run again     cw runs retry <id> [--now] [--wait]
 
 AI agents
   mcp             Serve the platform's tools to an AI client (stdio): claude mcp add -s user cloudwady -- cw mcp
