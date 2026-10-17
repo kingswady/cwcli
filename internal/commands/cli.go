@@ -52,6 +52,9 @@ type App struct {
 	current *platform.Client
 	// now is swapped in tests.
 	clock func() time.Time
+	// flagsDefined, when set, is handed each flag set a command defines
+	// (completion reads a command's flags this way).
+	flagsDefined func(*flag.FlagSet)
 }
 
 // New is cw as the terminal runs it: this machine's config, keychain and streams.
@@ -212,6 +215,10 @@ func (a *App) Run(args []string) int {
 		return 2
 	}
 	name, rest := args[0], args[1:]
+	if name == completeCommand {
+		// Asked on every Tab: no hints, no network, nothing on stderr.
+		return a.complete(rest)
+	}
 	code := a.dispatch(name, rest)
 	a.afterCommand(name, code)
 	return code
@@ -241,6 +248,12 @@ func (a *App) dispatch(name string, rest []string) int {
 		return a.exit(a.update(rest))
 	case "use":
 		return a.exit(a.use(rest))
+	case "namespaces":
+		return a.exit(a.namespaces(rest))
+	case "restore-points":
+		return a.exit(a.restorePoints(rest))
+	case "completion":
+		return a.exit(a.completion(rest))
 	}
 	if res := resourceNamed(name); res != nil {
 		return a.exit(a.resource(res, rest))
@@ -270,28 +283,33 @@ func (a *App) exit(err error) int {
 }
 
 func (a *App) usage(w io.Writer) {
-	fmt.Fprint(w, `cw reads your apps, servers, backups and runs from the terminal.
+	fmt.Fprint(w, `cw reads your projects, apps, servers, backups and runs from the terminal.
 
 Usage: cw <command> [flags]
 
 Account
-  login        Save an API token (create one in My Settings → API Tokens)
-  logout       Forget the saved token
-  whoami       Show who the token acts as, and its namespaces
-  use          Switch between platforms you logged in to
-  update       Update cw to the latest release (--check only looks)
+  login           Save an API token (create one in My Settings → API Tokens)
+  logout          Forget the saved token
+  whoami          Show who the token acts as, and its namespaces
+  namespaces      The token's namespaces: the codes --namespace takes
+  use             Switch between platforms you logged in to
+  update          Update cw to the latest release (--check only looks)
+  completion      Tab completion for bash, zsh or fish: source <(cw completion zsh)
 
 Read
-  attention    What needs attention now   exit code 3 when something does
-  apps         List apps                  cw apps show <id|name>
-  servers      List servers               cw servers show <id|name>
-  installers   List installed services    cw installers show <id|name>
-  backups      List backups               cw backups show <id>
-  runs         List recent runs           cw runs show <id>
-  logs         An app's Odoo log          cw logs <app> [--since 1h] [--grep …] [--follow]
+  attention       What needs attention now   exit code 3 when something does
+  projects        List projects              cw projects show <id|name>
+  apps            List apps                  cw apps show <id|name>: its URLs and repositories
+  urls            List apps' URLs            with TLS and the outside-in check: --ssl expiring_soon
+  servers         List servers               cw servers show <id|name>
+  installers      List installed services    cw installers show <id|name>
+  backups         List backups               cw backups show <id>: its off-site copies
+  restore-points  An app's changes           cw restore-points <app>: commits, modules, the way back
+  runs            List recent runs           cw runs show <id>
+  logs            An app's logs              cw logs <app> [--since 1h] [--grep …] [--follow] [--source …]
 
 AI agents
-  mcp          Serve the platform's tools to an AI client (stdio): claude mcp add -s user cloudwady -- cw mcp
+  mcp             Serve the platform's tools to an AI client (stdio): claude mcp add -s user cloudwady -- cw mcp
 
 Flags on every read command
   --json              Print the API response as JSON
@@ -302,8 +320,9 @@ Flags on every read command
 Names
   An app, server or installer is an id or a name. A name several share is narrowed
   with the list's filters: cw apps show v19-0 --project internal --env production
-  --app (backups, runs) and cw logs <app> take --project, --env, --server, --version
-  and --edition for that; they narrow only which app is meant (runs --state is the runs').
+  --app (backups, runs, urls), cw logs <app> and cw restore-points <app> take --project,
+  --env, --server, --version and --edition for that; they narrow only which app is meant
+  (runs --state is the runs').
 
 Environment
   CW_URL     Platform URL (default `+config.DefaultURL+`)
@@ -317,6 +336,9 @@ Run "cw <command> --help" for a command's own flags.
 func (a *App) newFlags(name string) *flag.FlagSet {
 	fs := flag.NewFlagSet("cw "+name, flag.ContinueOnError)
 	fs.SetOutput(a.stderr)
+	if a.flagsDefined != nil {
+		a.flagsDefined(fs)
+	}
 	return fs
 }
 

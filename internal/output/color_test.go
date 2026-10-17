@@ -111,3 +111,28 @@ func TestTheMessageTintResumesAfterTheStatus(t *testing.T) {
 		t.Errorf("the rest of a warning is still yellow: %q", got)
 	}
 }
+
+func TestNewColumnsAreColouredByTheirMeaning(t *testing.T) {
+	cases := []struct{ key, text, color string }{
+		{"state", "retrying", Yellow},
+		{"public_check", "passed", Green},
+		{"public_check", "failed (http_502)", Red},
+		{"public_check", "not checked (app_stopped)", Dim},
+		{"up_to_date", "up to date", Green},
+		{"up_to_date", "behind", Yellow},
+		{"up_to_date", "deleted upstream", Red},
+		{"offsite", "2/2", Green},
+		{"offsite", "1/2", Yellow},
+		{"outcome", "applied", Green},
+		{"outcome", "failed", Red},
+		{"outcome", "failed, kept as it was", Yellow},
+		{"ssl_status", "valid", Green},
+		{"verified", "no", Yellow},
+		{"primary", "yes", Green},
+	}
+	for _, c := range cases {
+		if got := Style(c.key, c.text); got != c.color+c.text+Reset {
+			t.Errorf("%s %q: %q", c.key, c.text, got)
+		}
+	}
+}

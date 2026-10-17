@@ -153,11 +153,44 @@ var cellStyles = map[string]func(string) string{
 		return map[string]string{"healthy": Green, "warning": Yellow, "critical": Red, "none": Dim}[v]
 	},
 	"ssl_status": func(v string) string {
-		return map[string]string{"expired": Red, "error": Red, "expiring_soon": Yellow, "unknown": Yellow}[v]
+		return map[string]string{"valid": Green, "expired": Red, "error": Red, "expiring_soon": Yellow, "unknown": Yellow}[v]
 	},
 	"automated":      yesNoColor,
 	"platform_login": yesNoColor,
-	"version":        func(string) string { return Cyan },
+	"primary":        yesNoColor,
+	"main":           yesNoColor,
+	"on_storage":     yesNoColor,
+	"on_server":      yesNoColor,
+	"verified": func(v string) string {
+		return map[string]string{"yes": Green, "no": Yellow}[v]
+	},
+	"version": func(string) string { return Cyan },
+	// A check's cell carries its reason: "failed (http_502)".
+	"public_check": func(v string) string {
+		switch {
+		case v == "passed":
+			return Green
+		case strings.HasPrefix(v, "failed"):
+			return Red
+		}
+		return Dim
+	},
+	"up_to_date": func(v string) string {
+		return map[string]string{"up to date": Green, "behind": Yellow, "deleted upstream": Red, "unknown": Dim}[v]
+	},
+	// "1/2": every copy stored, or not yet.
+	"offsite": func(v string) string {
+		if stored, made, ok := strings.Cut(v, "/"); ok && stored == made {
+			return Green
+		}
+		return Yellow
+	},
+	"outcome": func(v string) string {
+		return map[string]string{"applied": Green, "running": Cyan, "failed": Red, "failed, kept as it was": Yellow}[v]
+	},
+	"backup_verified": func(v string) string {
+		return map[string]string{"verified": Green, "not verified": Yellow}[v]
+	},
 }
 
 func stateColor(state string) string {
@@ -168,6 +201,8 @@ func stateColor(state string) string {
 		return Green
 	case state == "running" || state == "partial" || state == "starting" || state == "queued":
 		return Cyan
+	case state == "retrying":
+		return Yellow
 	case state == "error" || state == "failed" || state == "timeout" || state == "interrupted" || state == "delete":
 		return Red
 	case state == "draft" || state == "idle" || state == "cancel" || state == "canceled" || state == "disabled":

@@ -15,7 +15,7 @@ cmd/cw                    entry point: builds commands.App with the version, run
 
 | Package      | Owns                                                                                     | May import                          |
 | ------------ | ---------------------------------------------------------------------------------------- | ----------------------------------- |
-| `commands`   | every command (`account`, `resources`, `logs`, `attention`, `update`, `mcp`) and `cli.go` | all of the below                    |
+| `commands`   | every command (`account`, `resources` + `details`, `restorepoints`, `logs`, `attention`, `completion`, `update`, `mcp`) and `cli.go` | all of the below |
 | `mcpbridge`  | `Bridge`: forwards an AI client's messages with the MCP headers the platform checks       | —                                   |
 | `selfupdate` | `LatestTag`, `Fetch`, `ReplaceExecutable`, `Newer`                                         | `platform`                          |
 | `config`     | `Config`, `Resolve` (flag → `CW_URL` → saved → default), `SecretStore`                     | `platform`                          |
@@ -27,6 +27,16 @@ cmd/cw                    entry point: builds commands.App with the version, run
 - **A read command over an API function** — a `resource` entry in `commands/resources.go` (list, `show`,
   filters, columns). Anything else gets its own file in `commands/`. Commands reach the platform only through
   `platform.Client`.
+- **What a detail view shows beyond its fields** (an app's URLs and repositories, a backup's off-site copies, a
+  project's environments) — the resource's `extra`, in `commands/details.go`. A value computed from the whole
+  record (a run that is `retrying`, a URL's check with its reason) is a field's `derive`; a field marked
+  `hideEmpty` leaves its column out of a table no row fills, and its row out of a detail view — how a newer
+  field stays out of sight against an older platform. A resource the API has no single read for is `noShow`.
+- **A command the platform may not have yet** — wrap its error in `notOffered`: an older platform's "No API
+  function at …" becomes "does not offer cw … yet".
+- **Tab completion** — `commands/completion.go`. The scripts ask `cw __complete <words>`, which reads a
+  command's flags by running it with `-h` on a quiet copy of the app (`flagsDefined`): a command must define
+  its flags before it does anything else. Fixed flag values live in `flagValues`. It never calls the platform.
 - **A name lookup** — `resolveID` in `commands/resources.go`, the one place a name becomes an id. It asks the
   list with the lookup's `scope` (namespace, `--all`, the filters given) and, where the resource has a
   `nameSearch` parameter (apps: `search`), only for the names containing it; it keeps the exact matches, any

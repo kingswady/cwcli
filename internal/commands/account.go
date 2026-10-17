@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -148,11 +149,58 @@ func (a *App) whoami(args []string) error {
 		fmt.Fprintf(a.stdout, "Token expires %s (%s)\n", expires.Local().Format("2006-01-02 15:04"), output.Until(a.clock(), expires))
 	}
 	fmt.Fprintln(a.stdout)
+	return a.printNamespaces(me, color)
+}
+
+func (a *App) printNamespaces(me whoamiData, color bool) error {
 	rows := make([][]string, 0, len(me.Namespaces))
 	for _, ns := range me.Namespaces {
 		rows = append(rows, []string{output.Clean(ns.Name), output.Clean(ns.Code), output.Clean(ns.Level)})
 	}
 	return output.WriteTable(a.stdout, output.Table{Color: color}.Headers([]string{"NAMESPACE", "CODE", "LEVEL"}), rows)
+}
+
+// namespaces lists the token's namespaces and the caller's level in each:
+// the codes --namespace takes.
+func (a *App) namespaces(args []string) error {
+	fs := a.newFlags("namespaces")
+	asJSON := fs.Bool("json", false, "print the namespaces as JSON")
+	colorMode := fs.String("color", "auto", "auto (in a terminal, unless NO_COLOR is set), always or never")
+	if positional, err := parseArgs(fs, args); err != nil {
+		return err
+	} else if len(positional) > 0 {
+		return usagef("unexpected arguments: %s", strings.Join(positional, " "))
+	}
+	color, err := a.useColor(*colorMode, *asJSON)
+	if err != nil {
+		return err
+	}
+	c, err := a.client()
+	if err != nil {
+		return err
+	}
+	raw, err := c.Get("/whoami", nil)
+	if err != nil {
+		return err
+	}
+	if *asJSON {
+		var only struct {
+			Namespaces json.RawMessage `json:"namespaces"`
+		}
+		if err := json.Unmarshal(raw, &only); err != nil {
+			return err
+		}
+		return output.WriteJSON(a.stdout, only.Namespaces)
+	}
+	var me whoamiData
+	if err := platform.Decode(raw, &me); err != nil {
+		return err
+	}
+	if len(me.Namespaces) == 0 {
+		fmt.Fprintln(a.stderr, "This token reaches no namespace.")
+		return nil
+	}
+	return a.printNamespaces(me, color)
 }
 
 // use switches the saved platform to one logged in to before.

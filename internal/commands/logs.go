@@ -32,7 +32,7 @@ func (a *App) logs(args []string) error {
 	fs := a.newFlags("logs")
 	since := fs.String("since", "1h", "how far back: 30s, 15m, 1h … 24h")
 	source := fs.String("source", "main", "which logs, comma-separated: main (the Odoo log), setup, restore,\n"+
-		"backup, transfer, script — or all")
+		"backup, transfer, upgrade, script — or all")
 	grep := fs.String("grep", "", "only lines containing this text (any case)")
 	limit := fs.Int("limit", 200, "lines to show (1-2000)")
 	follow := fs.Bool("follow", false, "keep printing new lines until interrupted (Ctrl-C)")
@@ -43,7 +43,7 @@ func (a *App) logs(args []string) error {
 	narrow := narrowFlags(fs, apps, "<app>")
 	fs.Usage = func() {
 		fmt.Fprintf(a.stderr, "Usage: cw logs <app> [flags]\n\nThe app's logs, newest last: its Odoo log, and with --source\n"+
-			"the logs of its setup, restore, backup, transfer and script runs:\n"+
+			"the logs of its setup, restore, backup, transfer, upgrade and script runs:\n"+
 			"  cw logs v19-0 --source main,restore --follow\n\n"+
 			"<app> is an id or a name. Where several apps share the name,\n"+
 			"%s narrow which one it means:\n  cw logs v19-0 --project internal --env production\n\nFlags:\n",
@@ -86,7 +86,7 @@ func (a *App) logs(args []string) error {
 		fmt.Fprintf(a.stderr, "\nShowing the newest %d lines — narrow with --since or --grep, or raise --limit (max 2000).\n", *limit)
 	}
 	if len(page.Items) == 0 && out.source != "" && !out.json {
-		fmt.Fprintf(a.stderr, "No lines from %s in the last %s — a setup, restore, backup, transfer or script\n"+
+		fmt.Fprintf(a.stderr, "No lines from %s in the last %s — a setup, restore, backup, transfer, upgrade or script\n"+
 			"log only has lines while one runs; widen --since (up to 24h).\n", out.source, *since)
 	}
 	if !*follow {

@@ -84,3 +84,19 @@ func TestJSONCarriesNoRawC1Characters(t *testing.T) {
 		t.Errorf("not the same JSON value: %q (%v)", out.String(), err)
 	}
 }
+
+func TestExpiresSaysHowLongIsLeftOrHowLongAgo(t *testing.T) {
+	now = func() time.Time { return time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC) }
+	t.Cleanup(func() { now = time.Now })
+	cases := map[any]string{
+		"2026-11-26T22:27:57Z": "in 41 days",
+		"2026-10-16T18:00:00Z": "in 6 hours",
+		"2026-10-13T12:00:00Z": "3d ago",
+		nil:                    "-",
+	}
+	for in, want := range cases {
+		if got := Expires(in); got != want {
+			t.Errorf("Expires(%v) = %q, want %q", in, got, want)
+		}
+	}
+}

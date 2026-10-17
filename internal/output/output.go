@@ -169,6 +169,18 @@ func Ago(value any) string {
 	}
 }
 
+// Expires is when something ends: "in 41 days", or how long ago it did.
+func Expires(value any) string {
+	t, ok := ParseTime(value)
+	if !ok {
+		return "-"
+	}
+	if current := now(); t.After(current) {
+		return Until(current, t)
+	}
+	return Ago(value)
+}
+
 func Megabytes(value any) string {
 	n, ok := value.(json.Number)
 	if !ok {

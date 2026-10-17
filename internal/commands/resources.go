@@ -17,21 +17,36 @@ import (
 type record = map[string]any
 
 // field is one value of a record: its JSON key, its label and how it prints.
+// The key also picks the cell's colour (output/color.go).
 type field struct {
 	key    string
 	title  string
 	format func(any) string
+	// derive computes the value from the whole record (a run's state and
+	// whether it will be retried), instead of reading key.
+	derive func(record) any
 	// hideEmpty drops the column from a table where no row has a value
-	// (an older platform without the field, runs that are not about an app).
+	// (an older platform without the field, runs that are not about an app),
+	// and the row from a detail view when the record has none.
 	hideEmpty bool
+}
+
+func (f field) value(r record) any {
+	if f.derive != nil {
+		return f.derive(r)
+	}
+	return r[f.key]
 }
 
 func (f field) render(r record) string {
 	if f.format != nil {
-		return f.format(r[f.key])
+		return f.format(f.value(r))
 	}
-	return output.Text(r[f.key])
+	return output.Text(f.value(r))
 }
+
+// empty is a value the record does not have: missing, null or "".
+func (f field) empty(r record) bool { return output.Text(f.value(r)) == "-" }
 
 // filter is a flag that narrows a list; lookup names the resource whose name
 // the flag may be given instead of an id ("--app shop").
@@ -58,6 +73,10 @@ type resource struct {
 	details []field
 	// extra prints what a detail view has beyond its fields (a run's steps).
 	extra func(a *App, r record, out output.Table) error
+	// noShow: the API has no single-record read; the list is all there is.
+	noShow bool
+	// noShowHint says where the details are instead (cw urls → cw apps show).
+	noShowHint string
 	// hidesDeleted: the API leaves deleted and disabled records out unless asked (--all).
 	hidesDeleted bool
 	// optional columns, each shown when its own flag is given (--show-url).
@@ -111,12 +130,16 @@ var resources = []*resource{
 			{key: "id", title: "ID"}, {key: "name", title: "Name"}, {key: "namespace", title: "Namespace"},
 			{key: "project", title: "Project"}, {key: "environment", title: "Environment"},
 			{key: "environment_type", title: "Type"}, {key: "version", title: "Version"},
-			{key: "edition", title: "Edition"}, {key: "state", title: "State"}, {key: "url", title: "URL"},
+			{key: "edition", title: "Edition"}, {key: "state", title: "State"},
+			// A platform that lists every URL (below) leaves the primary one out here.
+			{key: "url", title: "URL", derive: unlessListed("urls"), hideEmpty: true},
 			{key: "server", title: "Server"}, {key: "deployed_at", title: "Deployed", format: output.LocalTime},
 			{key: "updated_at", title: "Updated", format: output.LocalTime},
 			{key: "backup_health", title: "Backup health"},
 			{key: "last_backup_at", title: "Last backup", format: output.LocalTime},
+			{key: "upgrade", title: "Upgrade", derive: upgradeText, hideEmpty: true},
 		},
+		extra: printAppExtras,
 	},
 	{
 		name: "servers", singular: "server", byName: true, hidesDeleted: true,
@@ -160,6 +183,7 @@ var resources = []*resource{
 			{key: "taken_at", title: "TAKEN", format: output.Ago},
 			{key: "size_mb", title: "SIZE", format: output.Megabytes}, {key: "format", title: "FORMAT"},
 			{key: "automated", title: "AUTO"}, {key: "state", title: "STATE"}, {key: "storage", title: "STORAGE"},
+			{key: "offsite", title: "OFFSITE", format: offsiteCount, hideEmpty: true},
 			namespaceField,
 		},
 		details: []field{
@@ -168,7 +192,9 @@ var resources = []*resource{
 			{key: "taken_at", title: "Taken", format: output.LocalTime}, {key: "size_mb", title: "Size", format: output.Megabytes},
 			{key: "format", title: "Format"}, {key: "automated", title: "Automated"}, {key: "state", title: "State"},
 			{key: "storage", title: "Storage"},
+			{key: "on_server", title: "On server", hideEmpty: true}, {key: "verified", title: "Verified", hideEmpty: true},
 		},
+		extra: printOffsiteCopies,
 	},
 	{
 		name: "runs", singular: "run",
@@ -178,17 +204,43 @@ var resources = []*resource{
 		},
 		columns: []field{
 			{key: "id", title: "ID"}, {key: "workflow", title: "WORKFLOW"}, {key: "action", title: "ACTION"},
-			{key: "state", title: "STATE"}, {key: "record", title: "FOR"}, projectField, envField,
+			{key: "state", title: "STATE", derive: runState}, {key: "record", title: "FOR"}, projectField, envField,
 			{key: "updated_at", title: "UPDATED", format: output.Ago}, namespaceField,
 		},
 		details: []field{
 			{key: "id", title: "ID"}, {key: "workflow", title: "Workflow"}, {key: "action", title: "Action"},
-			{key: "state", title: "State"}, {key: "namespace", title: "Namespace"}, {key: "record", title: "For"},
+			{key: "state", title: "State", derive: runState}, {key: "namespace", title: "Namespace"}, {key: "record", title: "For"},
 			{key: "record_type", title: "Type"}, {key: "project", title: "Project"}, {key: "environment_type", title: "Environment"},
 			{key: "created_at", title: "Started", format: output.LocalTime},
 			{key: "updated_at", title: "Updated", format: output.LocalTime},
 		},
 		extra: printSteps,
+	},
+	{
+		name: "projects", singular: "project", byName: true, hidesDeleted: true, nameSearch: "search",
+		filters: []filter{{flag: "search", param: "search", usage: "only projects whose name contains this (any case)"}},
+		columns: []field{
+			{key: "id", title: "ID"}, {key: "name", title: "NAME"}, {key: "code", title: "CODE"},
+			{key: "plan", title: "PLAN"}, {key: "environments", title: "ENVIRONMENTS", format: environmentTypes},
+			{key: "environments", title: "APPS", format: appTotal}, namespaceField,
+		},
+		details: []field{
+			{key: "id", title: "ID"}, {key: "name", title: "Name"}, {key: "code", title: "Code"},
+			{key: "namespace", title: "Namespace"}, {key: "plan", title: "Plan"}, {key: "disabled", title: "Disabled"},
+		},
+		extra: printEnvironments,
+	},
+	{
+		name: "urls", singular: "URL", noShow: true,
+		noShowHint: "an app's URLs are in cw apps show <app>",
+		filters: []filter{
+			{flag: "app", param: "app_id", usage: "only this app's URLs (id or name)", lookup: "apps"},
+			{flag: "ssl", param: "ssl_status", usage: "only URLs whose certificate is valid, expiring_soon, expired or unknown"},
+		},
+		columns: []field{
+			{key: "url", title: "URL"}, {key: "app", title: "APP"}, projectField, envField,
+			{key: "primary", title: "PRIMARY"}, tlsField, expiresField, checkField, namespaceField,
+		},
 	},
 }
 
@@ -243,8 +295,11 @@ func (a *App) readFlagSet(res *resource) (*flag.FlagSet, *readFlags) {
 		if res.byName {
 			show = "<id|name>"
 		}
-		fmt.Fprintf(a.stderr, "Usage: cw %s [flags]\n       cw %s show %s [flags]\n", res.name, res.name, show)
-		if res.byName && len(res.filters) > 0 {
+		fmt.Fprintf(a.stderr, "Usage: cw %s [flags]\n", res.name)
+		if !res.noShow {
+			fmt.Fprintf(a.stderr, "       cw %s show %s [flags]\n", res.name, show)
+		}
+		if res.byName && len(showFilters(res)) > 0 {
 			fmt.Fprintf(a.stderr, "\nA name several %s share is narrowed by the filters below (all but --%s):\n"+
 				"  cw %s show <name> --%s <value>\n", res.name, searchFlag(res), res.name, showFilters(res)[0])
 		}
@@ -343,13 +398,25 @@ func (a *App) resource(res *resource, args []string) error {
 	out := output.Table{Color: color}
 	switch {
 	case len(positional) == 0:
-		return a.list(c, res, opts, out)
+		return notOffered(c, "cw "+res.name, a.list(c, res, opts, out))
+	case positional[0] == "show" && res.noShow:
+		return usagef("cw %s has no show — %s", res.name, res.noShowHint)
 	case positional[0] == "show" && len(positional) == 2:
-		return a.show(c, res, opts, positional[1], out)
+		return notOffered(c, "cw "+res.name+" show", a.show(c, res, opts, positional[1], out))
 	default:
 		fs.Usage()
 		return usagef("unexpected arguments: %s", strings.Join(positional, " "))
 	}
+}
+
+// notOffered turns an older platform's "No API function at /projects" into
+// what it means for the command: the platform needs an update first.
+func notOffered(c *platform.Client, command string, err error) error {
+	var refused *platform.APIError
+	if errors.As(err, &refused) && refused.Code == "not_found" && strings.HasPrefix(refused.Message, "No API function") {
+		return fmt.Errorf("%s does not offer %s yet — it needs a newer platform version", c.Base, command)
+	}
+	return err
 }
 
 // columnsFor is the resource's columns plus the optional ones asked for,
@@ -496,7 +563,7 @@ func visibleColumns(columns []field, items []record) []field {
 	for _, col := range columns {
 		seen := map[string]bool{}
 		for _, item := range items {
-			seen[output.Text(item[col.key])] = true
+			seen[output.Text(col.value(item))] = true
 		}
 		switch {
 		case col.key == namespaceField.key && len(seen) < 2:
@@ -531,9 +598,12 @@ func (a *App) show(c *platform.Client, res *resource, opts *readFlags, ref strin
 	if err := platform.Decode(raw, &item); err != nil {
 		return err
 	}
-	rows := make([][]string, len(res.details))
-	for i, f := range res.details {
-		rows[i] = []string{out.Label(f.title + ":"), out.Cell(f.key, f.render(item))}
+	rows := make([][]string, 0, len(res.details))
+	for _, f := range res.details {
+		if f.hideEmpty && f.empty(item) {
+			continue
+		}
+		rows = append(rows, []string{out.Label(f.title + ":"), out.Cell(f.key, f.render(item))})
 	}
 	if err := output.WriteTable(a.stdout, nil, rows); err != nil {
 		return err
