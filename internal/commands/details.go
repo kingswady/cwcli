@@ -106,6 +106,9 @@ var repositoryColumns = []field{
 	{key: "repository", title: "REPOSITORY"}, {key: "branch", title: "BRANCH"}, {key: "main", title: "MAIN"},
 	{key: "deployed_sha", title: "DEPLOYED", format: shortSHA}, {key: "head_sha", title: "HEAD", format: shortSHA},
 	{key: "up_to_date", title: "STATUS", derive: branchStatus},
+	// DEPLOYED is the platform's last reading of the server, not a live look:
+	// when that was says whether "behind" can still be true.
+	{key: "checked_at", title: "CHECKED", format: output.Ago, hideEmpty: true},
 	{key: "deployed_message", title: "DEPLOYED COMMIT", format: output.FirstLine, hideEmpty: true},
 }
 

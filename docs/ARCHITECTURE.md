@@ -7,7 +7,7 @@
 cmd/cw                    entry point: builds commands.App with the version, runs it, exits
 └── internal/commands     the command line: dispatch, flags, exit codes, hints — and each command
     ├── mcpbridge         cw mcp: stdio ↔ <platform>/mcp, one JSON-RPC message per line
-    ├── selfupdate        cw update: the latest release, checked against checksums.txt, swapped in atomically
+    ├── selfupdate        cw update: the latest release, its signed checksums.txt checked, swapped in atomically
     ├── config            the platforms logged in to, the one in use, one token each (keychain or 0600 file)
     ├── output            tables aligned by visible width, colours, JSON, times
     └── platform          the /api/v1 client, and the rule for where a token may be sent
@@ -58,4 +58,15 @@ cmd/cw                    entry point: builds commands.App with the version, run
 - **Tests sit beside the code.** Command tests run the real command line against a fake API (`newHarness`,
   `fakeAPI` in `commands/cli_test.go`); lower layers are tested directly.
 - **Release:** push a tag `vX.Y.Z`. GoReleaser builds `./cmd/cw` and stamps `-X main.version`; `cw update`
-  and the install script rely on the version-less archive names in `.goreleaser.yaml`.
+  and the install scripts rely on the version-less archive names in `.goreleaser.yaml`. It also signs
+  `checksums.txt` (`scripts/sign.sh`, OpenSSL ed25519, a raw 64-byte `checksums.txt.sig`) and writes the
+  Homebrew cask into `kingswady/homebrew-tap`. Two repository secrets: `CW_SIGNING_KEY` (the release key's
+  PEM) and `HOMEBREW_TAP_DEPLOY_KEY` (a write deploy key of the tap).
+- **The release key:** its public half is `releaseKeys` in `internal/selfupdate`; `cw update` refuses a release
+  that is not signed by one of them, so a release without the secret cannot be installed by any cw from 0.9.0
+  on. To rotate: release once signed with the old key and listing both public keys, then switch the secret
+  and drop the old key in a later release. Losing the private key means a new one ships in a release people
+  install by hand (the install scripts), since no cw would accept it through `cw update`.
+- **The release lookup** reads where `releases/latest` points without following redirects; a repository that
+  moved points to its new `releases/latest` first, which is followed (https only, a few times at most). cw 0.7.0
+  and older did not, and cannot update past the rename to `kingswady/cwcli` by themselves.

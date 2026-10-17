@@ -31,6 +31,46 @@ archives:
 checksum:
   name_template: checksums.txt
 
+# checksums.txt is signed with the release key (ed25519, the CI secret
+# CW_SIGNING_KEY); cw update refuses a release whose checksums.txt.sig does not
+# verify against the public key built into cw (internal/selfupdate).
+signs:
+  - id: release-key
+    artifacts: checksum
+    signature: "${artifact}.sig"
+    cmd: ./scripts/sign.sh
+    # The key reaches the script in the job's environment: GoReleaser's templates
+    # do not carry a multi-line value.
+    args: ["${artifact}", "${signature}"]
+
+# brew install kingswady/tap/cw — the cask GoReleaser writes into kingswady/homebrew-tap,
+# pushed with a deploy key of that repository (the CI secret HOMEBREW_TAP_DEPLOY_KEY).
+homebrew_casks:
+  - name: cw
+    binaries: [cw]
+    directory: Casks
+    homepage: https://www.cloudwady.com/docs/api-cli-and-mcp
+    description: Read your CloudWady apps, servers, backups, runs and logs from the terminal
+    license: Apache-2.0
+    commit_author:
+      name: umar3ziz
+      email: 15310950+umar3ziz@users.noreply.github.com
+    commit_msg_template: "cw {{ .Tag }}"
+    repository:
+      owner: kingswady
+      name: homebrew-tap
+      branch: main
+      git:
+        url: git@github.com:kingswady/homebrew-tap.git
+        private_key: "{{ .Env.HOMEBREW_TAP_DEPLOY_KEY }}"
+    hooks:
+      post:
+        # The binary is not notarized: without this macOS refuses to run what Homebrew downloaded.
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/cw"]
+          end
+
 changelog:
   sort: asc
 

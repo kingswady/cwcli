@@ -1,5 +1,6 @@
 // Package selfupdate replaces the running cw with a release: found through the
-// releases/latest redirect, checked against checksums.txt, swapped in atomically.
+// releases/latest redirect, checked against checksums.txt and its signature,
+// swapped in atomically.
 package selfupdate
 
 import (
@@ -9,7 +10,9 @@ import (
 	"bytes"
 	"cmp"
 	"compress/gzip"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -30,7 +33,25 @@ import (
 const (
 	DefaultReleases = "https://github.com/kingswady/cwcli/releases"
 	maxDownload     = 64 << 20 // an archive is a few MB; anything this large is wrong
+	// maxMoves is how many times a releases/latest lookup follows the
+	// repository moving (a rename answers 301 to the new name first).
+	maxMoves = 3
 )
+
+// releaseKeys are the ed25519 public keys (base64) a release's checksums.txt
+// must be signed with: checksums.txt comes from the same release as the
+// archive, so only a signature made outside it tells a real release from a
+// replaced one. Rotating: a release signed with the old key adds the new one
+// here, a later one drops the old. The private key is the CI secret
+// CW_SIGNING_KEY.
+var releaseKeys = []string{"2eJf/GHN2ARulU7kuaSxETgC9kcDpb0/C8QDhfYtXww="}
+
+// TrustOnlyForTest makes keys the release keys until restore is called.
+func TrustOnlyForTest(keys ...string) (restore func()) {
+	saved := releaseKeys
+	releaseKeys = keys
+	return func() { releaseKeys = saved }
+}
 
 // downloadClient follows the redirects GitHub serves release files through,
 // but only to https.
@@ -74,21 +95,33 @@ func LatestTag(releases string) (string, error) {
 	return LatestTagWith(platform.NewHTTPClient(), releases)
 }
 
+// LatestTagWith asks with httpClient, which must not follow redirects: the
+// tag is read from where releases/latest points. A repository that moved
+// points to its new releases/latest first; that is followed, over https only.
 func LatestTagWith(httpClient *http.Client, releases string) (string, error) {
 	latest := strings.TrimRight(releases, "/") + "/latest"
-	if err := fetchableURL(latest); err != nil {
-		return "", err
+	for range maxMoves + 1 {
+		if err := fetchableURL(latest); err != nil {
+			return "", err
+		}
+		resp, err := httpClient.Get(latest)
+		if err != nil {
+			return "", fmt.Errorf("cannot reach %s: %w", releases, err)
+		}
+		resp.Body.Close()
+		target, err := resp.Location()
+		if resp.StatusCode < 300 || resp.StatusCode >= 400 || err != nil {
+			return "", fmt.Errorf("could not find the latest release at %s (HTTP %d)", releases, resp.StatusCode)
+		}
+		if tag := path.Base(target.Path); releaseTag.MatchString(tag) {
+			return tag, nil
+		}
+		if !strings.HasSuffix(target.Path, "/releases/latest") {
+			break
+		}
+		latest = target.String()
 	}
-	resp, err := httpClient.Get(latest)
-	if err != nil {
-		return "", fmt.Errorf("cannot reach %s: %w", releases, err)
-	}
-	resp.Body.Close()
-	tag := path.Base(resp.Header.Get("Location"))
-	if resp.StatusCode < 300 || resp.StatusCode >= 400 || !releaseTag.MatchString(tag) {
-		return "", fmt.Errorf("could not find the latest release at %s (HTTP %d)", releases, resp.StatusCode)
-	}
-	return tag, nil
+	return "", fmt.Errorf("could not find the latest release at %s", releases)
 }
 
 func download(url string) ([]byte, error) {
@@ -129,6 +162,13 @@ func Fetch(releases, tag string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	signature, err := download(base + "checksums.txt.sig")
+	if err != nil {
+		return nil, fmt.Errorf("%s is not signed (no checksums.txt.sig) — not updating: %w", tag, err)
+	}
+	if !signedByRelease(sums, signature) {
+		return nil, fmt.Errorf("%s's checksums.txt is not signed with cw's release key — not updating", tag)
+	}
 	expected := checksumFor(sums, name)
 	if expected == "" {
 		return nil, fmt.Errorf("%s is not in %s's checksums.txt", name, tag)
@@ -141,6 +181,20 @@ func Fetch(releases, tag string) ([]byte, error) {
 		return fromZip(archive)
 	}
 	return fromTarGz(archive)
+}
+
+// signedByRelease says whether signature is one of the release keys' over sums.
+func signedByRelease(sums, signature []byte) bool {
+	if len(signature) != ed25519.SignatureSize {
+		return false
+	}
+	for _, encoded := range releaseKeys {
+		key, err := base64.StdEncoding.DecodeString(encoded)
+		if err == nil && len(key) == ed25519.PublicKeySize && ed25519.Verify(key, sums, signature) {
+			return true
+		}
+	}
+	return false
 }
 
 func checksumFor(sums []byte, name string) string {

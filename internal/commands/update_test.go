@@ -4,7 +4,9 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"net/http"
@@ -14,6 +16,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/kingswady/cwcli/internal/selfupdate"
 )
 
 func archiveOf(t *testing.T, binary []byte) []byte {
@@ -32,8 +36,15 @@ func archiveOf(t *testing.T, binary []byte) []byte {
 	return buf.Bytes()
 }
 
-// fakeReleases answers like github.com/kingswady/cwcli/releases for one tag.
+// fakeReleases answers like github.com/kingswady/cwcli/releases for one tag,
+// its checksums.txt signed with a key cw is made to trust.
 func fakeReleases(t *testing.T, latest string, binary []byte, tamper bool) (*httptest.Server, *int) {
+	return fakeSignedReleases(t, latest, binary, tamper, "trusted")
+}
+
+// fakeSignedReleases is fakeReleases whose checksums.txt is signed by the
+// "trusted" key, by "another" one cw does not trust, or not at all ("none").
+func fakeSignedReleases(t *testing.T, latest string, binary []byte, tamper bool, signer string) (*httptest.Server, *int) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("the fake serves tar.gz archives")
@@ -44,6 +55,14 @@ func fakeReleases(t *testing.T, latest string, binary []byte, tamper bool) (*htt
 	if tamper {
 		sum[0] ^= 0xff
 	}
+	sums := []byte(fmt.Sprintf("%s  %s\n", hex.EncodeToString(sum[:]), name))
+	trusted, trustedKey := testKey(t)
+	_, anotherKey := testKey(t)
+	t.Cleanup(selfupdate.TrustOnlyForTest(base64.StdEncoding.EncodeToString(trusted)))
+	signature := map[string][]byte{
+		"trusted": ed25519.Sign(trustedKey, sums),
+		"another": ed25519.Sign(anotherKey, sums),
+	}[signer]
 	downloads := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -53,13 +72,24 @@ func fakeReleases(t *testing.T, latest string, binary []byte, tamper bool) (*htt
 			downloads++
 			w.Write(archive)
 		case strings.HasSuffix(r.URL.Path, "/checksums.txt"):
-			fmt.Fprintf(w, "%s  %s\n", hex.EncodeToString(sum[:]), name)
+			w.Write(sums)
+		case strings.HasSuffix(r.URL.Path, "/checksums.txt.sig") && signature != nil:
+			w.Write(signature)
 		default:
 			http.NotFound(w, r)
 		}
 	}))
 	t.Cleanup(server.Close)
 	return server, &downloads
+}
+
+func testKey(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey) {
+	t.Helper()
+	public, private, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return public, private
 }
 
 func updateHarness(t *testing.T, server *httptest.Server, running string) (*harness, string) {
@@ -162,5 +192,23 @@ func TestAnUnwritableDirectorySuggestsSudo(t *testing.T) {
 	t.Cleanup(func() { os.Chmod(dir, 0o755) })
 	if code := h.run("update"); code != 1 || !strings.Contains(h.stderr.String(), "sudo cw update") {
 		t.Fatalf("exit %d: %s", code, h.stderr)
+	}
+}
+
+func TestAReleaseThatIsNotSignedWithTheReleaseKeyIsNotInstalled(t *testing.T) {
+	for signer, says := range map[string]string{
+		"none":    "is not signed",
+		"another": "not signed with cw's release key",
+	} {
+		t.Run(signer, func(t *testing.T) {
+			server, _ := fakeSignedReleases(t, "v0.3.0", []byte("unsigned binary"), false, signer)
+			h, target := updateHarness(t, server, "0.2.0")
+			if code := h.run("update"); code != 1 || !strings.Contains(h.stderr.String(), says) {
+				t.Fatalf("exit %d: %s", code, h.stderr)
+			}
+			if body, _ := os.ReadFile(target); string(body) != "old binary" {
+				t.Errorf("binary replaced: %q", body)
+			}
+		})
 	}
 }

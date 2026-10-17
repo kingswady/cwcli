@@ -1,7 +1,10 @@
 package selfupdate
 
 import (
+	"crypto/ed25519"
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -109,5 +112,75 @@ func TestASwapMovesThePreviousBinaryAside(t *testing.T) {
 	}
 	if body, _ := os.ReadFile(target + ".old"); string(body) != "old binary" {
 		t.Errorf("cw.exe.old is %q", body)
+	}
+}
+
+func TestALatestReleaseIsFoundAfterTheRepositoryMoved(t *testing.T) {
+	// A renamed repository answers 301 to its new name, which answers 302 to the tag.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/old/releases/latest":
+			http.Redirect(w, r, "/new/releases/latest", http.StatusMovedPermanently)
+		case "/new/releases/latest":
+			http.Redirect(w, r, "/new/releases/tag/v1.2.3", http.StatusFound)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	if tag, err := LatestTag(server.URL + "/old/releases"); err != nil || tag != "v1.2.3" {
+		t.Fatalf("tag %q, err %v", tag, err)
+	}
+}
+
+func TestAMoveIsFollowedOnlyToReleasesOverHTTPSAndNotForever(t *testing.T) {
+	var hops int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/plain/releases/latest":
+			http.Redirect(w, r, "http://example.com/x/releases/latest", http.StatusMovedPermanently)
+		case "/elsewhere/releases/latest":
+			http.Redirect(w, r, "/login", http.StatusFound)
+		default: // /loop/<n>/releases/latest moves on and on
+			hops++
+			http.Redirect(w, r, fmt.Sprintf("/loop/%d/releases/latest", hops), http.StatusMovedPermanently)
+		}
+	}))
+	t.Cleanup(server.Close)
+	for _, base := range []string{"/plain/releases", "/elsewhere/releases", "/loop/0/releases"} {
+		if tag, err := LatestTag(server.URL + base); err == nil {
+			t.Errorf("%s: tag %q accepted", base, tag)
+		}
+	}
+	if hops > maxMoves+1 {
+		t.Errorf("followed %d moves", hops)
+	}
+}
+
+func TestOnlyASignatureByAReleaseKeyCounts(t *testing.T) {
+	public, private, _ := ed25519.GenerateKey(nil)
+	_, other, _ := ed25519.GenerateKey(nil)
+	t.Cleanup(TrustOnlyForTest(base64.StdEncoding.EncodeToString(public)))
+	sums := []byte("abc  cw_linux_amd64.tar.gz\n")
+	if !signedByRelease(sums, ed25519.Sign(private, sums)) {
+		t.Error("the release key's signature is refused")
+	}
+	for name, signature := range map[string][]byte{
+		"another key": ed25519.Sign(other, sums),
+		"other text":  ed25519.Sign(private, []byte("abc  cw_linux_arm64.tar.gz\n")),
+		"short":       []byte("not a signature"),
+		"none":        nil,
+	} {
+		if signedByRelease(sums, signature) {
+			t.Errorf("%s accepted", name)
+		}
+	}
+}
+
+func TestTheBuiltInReleaseKeyIsAKey(t *testing.T) {
+	for _, encoded := range releaseKeys {
+		if key, err := base64.StdEncoding.DecodeString(encoded); err != nil || len(key) != ed25519.PublicKeySize {
+			t.Errorf("release key %q: %d bytes, %v", encoded, len(key), err)
+		}
 	}
 }

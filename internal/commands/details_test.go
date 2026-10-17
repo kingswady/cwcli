@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kingswady/cwcli/internal/output"
 )
@@ -26,7 +27,8 @@ var fullApp = map[string]any{
 	"repositories": []map[string]any{
 		{"repository": "odoo EP", "branch": "staging", "main": true,
 			"deployed_sha": "972dba2bee0123456789abcdef0123456789abcd", "head_sha": "972dba2bee0123456789abcdef0123456789abcd",
-			"deployed_message": "Merge pull request #12 from acme/fix", "up_to_date": true, "deleted_upstream": false},
+			"deployed_message": "Merge pull request #12 from acme/fix", "up_to_date": true, "deleted_upstream": false,
+			"checked_at": time.Now().Add(-3 * 24 * time.Hour).UTC().Format(time.RFC3339)},
 		{"repository": "everphone", "branch": "18.0-amodoo", "main": false,
 			"deployed_sha": "4b4259817b0123456789abcdef0123456789abcd", "head_sha": "aaaaaaaabbbb0123456789abcdef0123456789ab",
 			"deployed_message": nil, "up_to_date": false, "deleted_upstream": false},
@@ -43,7 +45,7 @@ func TestAppShowListsEveryURLAndRepository(t *testing.T) {
 	out := h.stdout.String()
 	for _, want := range []string{
 		"URLs:", "https://shop.amodoo.de", "https://www.amodoo.de", "failed (http_502)", "in ", "expiring_soon",
-		"Repositories:", "odoo EP", "staging", "972dba2b", "aaaaaaaa", "up to date", "behind",
+		"Repositories:", "odoo EP", "staging", "972dba2b", "aaaaaaaa", "up to date", "behind", "CHECKED", "3d ago",
 		"Merge pull request #12", "Upgrade:", "18.0 → 19.0, both kept (test run) — new app amodoo-19 (2194)",
 	} {
 		if !strings.Contains(out, want) {

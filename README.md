@@ -16,7 +16,21 @@ The script downloads the release for your machine, checks its SHA-256 against th
 and installs `cw` into `/usr/local/bin` if you can write there, `~/.local/bin` otherwise. It never uses sudo.
 Your platform serves the same script at its own address, and then tells you the matching `cw login --url`.
 
-Windows: download `cw_windows_amd64.zip` from the [releases](https://github.com/kingswady/cwcli/releases).
+Homebrew (macOS):
+
+```bash
+brew install kingswady/tap/cw
+```
+
+Windows (PowerShell):
+
+```powershell
+irm https://www.cloudwady.com/install.ps1 | iex
+```
+
+It checks the download against `checksums.txt` too, installs `cw.exe` into `%LOCALAPPDATA%\Programs\cw` and puts
+that folder on your PATH (open a new terminal afterwards); `$env:CW_VERSION = "v1.0.0"` before it picks a
+release. By hand: download `cw_windows_amd64.zip` from the [releases](https://github.com/kingswady/cwcli/releases).
 
 From source (Go 1.26+, or Docker): `make build` → `bin/cw`; `make docker-dist` builds every platform. How the code is laid out:
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -28,7 +42,20 @@ cw update            # to the latest release, checked and swapped in place
 cw update --check    # only look
 ```
 
-In a terminal, cw mentions a newer release at most once a day (never in CI; `CW_NO_UPDATE_CHECK=1` turns it off).
+When a newer release is out, cw says so after a command, at most once a day, and in a terminal asks
+`Update now? [Y/n]`. Never in CI or when its output goes to another program; `CW_NO_UPDATE_CHECK=1` turns it
+off. Installed with Homebrew, it tells you to run `brew upgrade cw` instead.
+
+Every release's `checksums.txt` is signed. `cw update` installs a release only when that signature verifies
+against the release key built into cw, and the archive matches its checksum, so a release file replaced on
+the way, or on the release page, is refused.
+
+**From cw 0.7.0 or older:** those versions look for releases at the repository's old address and cannot find
+them. Update once by hand, then `cw update` works again:
+
+```bash
+CW_DOWNLOAD_BASE=https://github.com/kingswady/cwcli/releases cw update
+```
 
 ## Tab completion
 
