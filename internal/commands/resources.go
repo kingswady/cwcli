@@ -131,6 +131,7 @@ var resources = []*resource{
 			{key: "project", title: "Project"}, {key: "environment", title: "Environment"},
 			{key: "environment_type", title: "Type"}, {key: "version", title: "Version"},
 			{key: "edition", title: "Edition"}, {key: "state", title: "State"},
+			{key: "maintenance", title: "Maintenance", derive: onOff("maintenance"), hideEmpty: true},
 			// A platform that lists every URL (below) leaves the primary one out here.
 			{key: "url", title: "URL", derive: unlessListed("urls"), hideEmpty: true},
 			{key: "server", title: "Server"}, {key: "deployed_at", title: "Deployed", format: output.LocalTime},
@@ -411,6 +412,21 @@ func (a *App) resource(res *resource, args []string) error {
 
 // notOffered turns an older platform's "No API function at /projects" into
 // what it means for the command: the platform needs an update first.
+// onOff is a boolean key as "on" / "off", and nothing when the platform does
+// not send it (an older one).
+func onOff(key string) func(record) any {
+	return func(r record) any {
+		on, sent := r[key].(bool)
+		switch {
+		case !sent:
+			return nil
+		case on:
+			return "on"
+		}
+		return "off"
+	}
+}
+
 func notOffered(c *platform.Client, command string, err error) error {
 	var refused *platform.APIError
 	if errors.As(err, &refused) && refused.Code == "not_found" && strings.HasPrefix(refused.Message, "No API function") {

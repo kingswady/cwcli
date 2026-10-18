@@ -17,7 +17,8 @@ import (
 	"github.com/kingswady/cwcli/internal/platform"
 )
 
-// The commands that change something: cw backup, cw restart, cw runs retry.
+// The commands that change something: cw backup, cw restart, cw runs retry,
+// cw maintenance, cw apps update, cw apps update-modules (updates.go).
 // Each asks first (or takes --yes), sends one request with one Idempotency-Key
 // — reused on cw's own retries, so the platform acts once whatever happens on
 // the way — and with --wait follows the run it started.
@@ -95,24 +96,27 @@ func subjectOf(r record, nameKey string) subject {
 
 // confirm asks before a change. A production app is confirmed by typing its
 // name; anything else by y. Without a terminal there is nobody to ask: a
-// script says --yes.
-func (a *App) confirm(opts *writeFlags, action string, s subject) error {
+// script says --yes. note, when given, is a sentence more on what it does.
+func (a *App) confirm(opts *writeFlags, action, note string, s subject) error {
 	if opts.yes {
 		return nil
 	}
 	if !a.stdinIsTerminal() {
 		return usagef("%s%s changes it: pass --yes to do it without asking", action, s.where())
 	}
+	if note != "" {
+		note = " " + note
+	}
 	reader := bufio.NewReader(a.stdin)
 	if s.production {
-		fmt.Fprintf(a.stderr, "%s%s — a production app. Type %s to go on: ", action, s.where(), s.name)
+		fmt.Fprintf(a.stderr, "%s%s — a production app.%s Type %s to go on: ", action, s.where(), note, s.name)
 		line, _ := reader.ReadString('\n')
 		if strings.TrimSpace(line) != s.name {
 			return errCancelled
 		}
 		return nil
 	}
-	fmt.Fprintf(a.stderr, "%s%s? [y/N] ", action, s.where())
+	fmt.Fprintf(a.stderr, "%s%s?%s [y/N] ", action, s.where(), note)
 	line, _ := reader.ReadString('\n')
 	switch strings.ToLower(strings.TrimSpace(line)) {
 	case "y", "yes":
@@ -185,6 +189,7 @@ func writeError(c *platform.Client, command string, err error) error {
 		"request_in_progress":    "the same request is still being handled — check cw runs before asking again",
 		"idempotency_key_reused": "run the command again",
 		"access_denied":          "your access level does not allow this change in this environment",
+		"upgrade_standby":        "a version upgrade holds the app — finish or cancel it in the dashboard first",
 	}[refused.Code]
 	if refused.Code == "not_retryable" {
 		hint = retryReasons[refused.Reason]
@@ -195,11 +200,13 @@ func writeError(c *platform.Client, command string, err error) error {
 	return fmt.Errorf("%w — %s", err, hint)
 }
 
-// writeAnswer is what the platform answers a change.
+// writeAnswer is what the platform answers a change. BackupRunID is the backup
+// taken first, when one was: RunID's run waits for it in the same queue.
 type writeAnswer struct {
-	State    string      `json:"state"`
-	RunID    json.Number `json:"run_id"`
-	BackupID json.Number `json:"backup_id"`
+	State       string      `json:"state"`
+	RunID       json.Number `json:"run_id"`
+	BackupID    json.Number `json:"backup_id"`
+	BackupRunID json.Number `json:"backup_run_id"`
 }
 
 func (a *App) resolveApp(c *platform.Client, ref string, opts *writeFlags, narrow map[string]*string, out output.Table) (string, record, error) {
@@ -226,6 +233,7 @@ func (a *App) resolveApp(c *platform.Client, ref string, opts *writeFlags, narro
 type writeCommand struct {
 	name     string // "cw backup", for an older platform's refusal
 	action   string // "Back up shop"
+	note     string // a sentence more in the question, or ""
 	path     string
 	body     map[string]any
 	subject  subject
@@ -238,7 +246,7 @@ func (a *App) runWrite(c *platform.Client, cmd writeCommand, out output.Table) e
 	if cmd.opts.asJSON && cmd.opts.wait {
 		return usagef("--json prints the platform's answer; follow the run with cw runs show <id> --json")
 	}
-	if err := a.confirm(cmd.opts, cmd.action, cmd.subject); err != nil {
+	if err := a.confirm(cmd.opts, cmd.action, cmd.note, cmd.subject); err != nil {
 		return err
 	}
 	raw, _, err := a.postWrite(c, cmd.path, cmd.body)
@@ -267,7 +275,27 @@ func (a *App) runWrite(c *platform.Client, cmd writeCommand, out output.Table) e
 		fmt.Fprintf(a.stderr, "Follow it: cw runs show %s  (or add --wait)\n", runID)
 		return nil
 	}
-	return a.waitRun(c, runID, cmd.opts.timeout, out)
+	return a.waitAfterBackup(c, answer, cmd.opts.timeout, out)
+}
+
+// waitAfterBackup follows the change's run, and first the backup's when one
+// goes ahead of it in its queue: a failed backup leaves the change unstarted.
+// Both share one --timeout.
+func (a *App) waitAfterBackup(c *platform.Client, answer writeAnswer, timeout time.Duration, out output.Table) error {
+	runID, backupRun := answer.RunID.String(), answer.BackupRunID.String()
+	if backupRun == "" {
+		return a.waitRun(c, runID, timeout, out)
+	}
+	start := a.clock()
+	fmt.Fprintf(a.stdout, "Backup first: run %s\n", backupRun)
+	if err := a.waitRun(c, backupRun, timeout, out); err != nil {
+		if errors.Is(err, errRunFailed) {
+			fmt.Fprintf(a.stdout, "The backup failed, so run %s did not start: the app was not changed.\n", runID)
+		}
+		return err
+	}
+	fmt.Fprintf(a.stdout, "Then run %s:\n", runID)
+	return a.waitRun(c, runID, timeout-a.clock().Sub(start), out)
 }
 
 func (a *App) backup(args []string) error {

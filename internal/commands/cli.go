@@ -245,7 +245,9 @@ func (a *App) dispatch(name string, rest []string) int {
 	case "mcp":
 		return a.exit(a.mcp(rest))
 	case "update":
-		return a.exit(a.update(rest))
+		return a.exit(a.updateSelf(rest))
+	case "maintenance":
+		return a.exit(a.maintenance(rest))
 	case "use":
 		return a.exit(a.use(rest))
 	case "namespaces":
@@ -261,6 +263,12 @@ func (a *App) dispatch(name string, rest []string) int {
 	}
 	if name == "runs" && len(rest) > 0 && rest[0] == "retry" {
 		return a.exit(a.runsRetry(rest[1:]))
+	}
+	if name == "apps" && len(rest) > 0 && rest[0] == "update" {
+		return a.exit(a.updateApp(rest[1:]))
+	}
+	if name == "apps" && len(rest) > 0 && rest[0] == "update-modules" {
+		return a.exit(a.updateModules(rest[1:]))
 	}
 	if res := resourceNamed(name); res != nil {
 		return a.exit(a.resource(res, rest))
@@ -298,7 +306,7 @@ func (a *App) exit(err error) int {
 
 func (a *App) usage(w io.Writer) {
 	fmt.Fprint(w, `cw reads your projects, apps, servers, backups and runs from the terminal — and backs up,
-restarts and retries them.
+restarts, updates and retries them.
 
 Usage: cw <command> [flags]
 
@@ -327,6 +335,10 @@ Change (asks first; --yes from a script; the token needs the function ticked)
   backup          Back up an app now         cw backup <app> [--format dump] [--wait]
   restart         Restart an app             cw restart <app> [--wait]
   runs retry      Run a failed run again     cw runs retry <id> [--now] [--wait]
+  apps update     Update an app              cw apps update <app> [--quick] [--modules …] [--wait]
+                  …or some of its modules    cw apps update-modules <app> sale stock [--wait]
+  maintenance     Maintenance page on / off  cw maintenance <app> on|off [--wait]
+  (an update backs a production app up first: --no-backup skips it, --backup asks for it elsewhere)
 
 AI agents
   mcp             Serve the platform's tools to an AI client (stdio): claude mcp add -s user cloudwady -- cw mcp

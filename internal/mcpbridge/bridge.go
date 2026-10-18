@@ -1,6 +1,8 @@
 // Package mcpbridge serves the platform's MCP tools to a local AI client over
 // stdio: each line on stdin is one JSON-RPC message, posted to <platform>/mcp
-// with the token; each answer goes back as one line on stdout.
+// with the token; each answer goes back as one line on stdout. For a 2025
+// client that can show its user a form, the bridge also runs the platform's
+// confirmation of a change with it (confirm.go).
 package mcpbridge
 
 import (
@@ -32,6 +34,7 @@ type Bridge struct {
 	mu        sync.Mutex // guards Out, Log and version
 	// version is what a 2025 client agreed in initialize; later requests repeat it.
 	version string
+	asking  asking // a 2025 client's confirmations (confirm.go)
 }
 
 // Serve forwards every message until stdin closes, answering them concurrently
@@ -40,6 +43,7 @@ func (b *Bridge) Serve(in io.Reader) error {
 	reader := bufio.NewReaderSize(in, 1<<20)
 	var wg sync.WaitGroup
 	defer wg.Wait()
+	defer b.asking.stop() // first: a question still open will get no answer now
 	for {
 		line, err := reader.ReadBytes('\n')
 		if line = bytes.TrimSpace(line); len(line) > 0 {
@@ -70,6 +74,9 @@ type mcpMessage struct {
 		URI             string
 		ProtocolVersion string
 		Meta            map[string]json.RawMessage
+		// initialize's: whether the client can show a form, and who it is.
+		Capabilities map[string]json.RawMessage
+		ClientInfo   json.RawMessage
 	}
 }
 
@@ -93,6 +100,8 @@ func parseMessage(raw []byte) (*mcpMessage, error) {
 		_ = json.Unmarshal(params["uri"], &msg.Params.URI)
 		_ = json.Unmarshal(params["protocolVersion"], &msg.Params.ProtocolVersion)
 		_ = json.Unmarshal(params["_meta"], &msg.Params.Meta)
+		_ = json.Unmarshal(params["capabilities"], &msg.Params.Capabilities)
+		msg.Params.ClientInfo = params["clientInfo"]
 	}
 	return msg, nil
 }
@@ -107,10 +116,29 @@ func (b *Bridge) forward(raw []byte) {
 		b.reply(nil, -32600, "Invalid Request: one JSON-RPC message object per line")
 		return
 	}
-	req, err := http.NewRequest(http.MethodPost, b.Endpoint, bytes.NewReader(raw))
+	if b.asking.answered(msg, raw) || b.confirming(msg, raw) {
+		return
+	}
+	req, err := b.request(msg, raw)
 	if err != nil {
 		b.fail(msg, err.Error())
 		return
+	}
+	resp, err := b.HTTP.Do(req)
+	if err != nil {
+		b.fail(msg, fmt.Sprintf("cannot reach %s: %v", b.Endpoint, err))
+		return
+	}
+	defer resp.Body.Close()
+	b.relay(msg, resp)
+}
+
+// request is the POST that carries raw to the platform, with the headers MCP
+// repeats from the body.
+func (b *Bridge) request(msg *mcpMessage, raw []byte) (*http.Request, error) {
+	req, err := http.NewRequest(http.MethodPost, b.Endpoint, bytes.NewReader(raw))
+	if err != nil {
+		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+b.Token)
 	req.Header.Set("Content-Type", "application/json")
@@ -125,13 +153,7 @@ func (b *Bridge) forward(raw []byte) {
 	if v := b.versionFor(msg); v != "" {
 		req.Header.Set("MCP-Protocol-Version", v)
 	}
-	resp, err := b.HTTP.Do(req)
-	if err != nil {
-		b.fail(msg, fmt.Sprintf("cannot reach %s: %v", b.Endpoint, err))
-		return
-	}
-	defer resp.Body.Close()
-	b.relay(msg, resp)
+	return req, nil
 }
 
 // fail answers a request with an internal error. Nothing may answer a
