@@ -48,10 +48,10 @@ func TestTabOffersOnlyWhatFits(t *testing.T) {
 		words []string
 		want  string
 	}{
-		{[]string{"apps", "show", ""}, ""},               // the name is the platform's: nothing offline
-		{[]string{"urls", ""}, ""},                       // urls has no show
-		{[]string{"apps", "--json", "sh"}, "show"},       // --json takes no value
-		{[]string{"apps", "--project", "x", ""}, "show"}, // --project does
+		{[]string{"apps", "show", ""}, ""},                                     // the name is the platform's: nothing offline
+		{[]string{"urls", ""}, ""},                                             // urls has no show
+		{[]string{"apps", "--json", "sh"}, "show"},                             // --json takes no value
+		{[]string{"apps", "--project", "x", ""}, "show update update-modules"}, // --project does
 		{[]string{"nope", "--"}, ""},
 	}
 	for _, c := range cases {

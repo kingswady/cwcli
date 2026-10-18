@@ -80,6 +80,9 @@ var flagValues = map[string][]string{
 	"source":  {"main", "setup", "restore", "backup", "transfer", "upgrade", "script", "all"},
 	"ssl":     {"valid", "expiring_soon", "expired", "unknown"},
 	"format":  {"zip", "dump"},
+	// cw apps update and cw apps update-modules
+	"modules":       {"changed", "configured", "none"},
+	"backup-format": {"zip", "dump"},
 }
 
 func (a *App) candidates(words []string) []string {
@@ -94,6 +97,11 @@ func (a *App) candidates(words []string) []string {
 	if command == "runs" && len(before) > 1 && before[1] == "retry" {
 		// cw runs retry: its own flags, after the subcommand word.
 		command, before = "runs retry", append([]string{"runs retry"}, before[2:]...)
+	}
+	if command == "apps" && len(before) > 1 && (before[1] == "update" || before[1] == "update-modules") {
+		// cw apps update / update-modules: their own flags, after the subcommand word.
+		sub := "apps " + before[1]
+		command, before = sub, append([]string{sub}, before[2:]...)
 	}
 	fs := a.flagsOf(command)
 	if fs == nil {
@@ -115,6 +123,10 @@ func (a *App) candidates(words []string) []string {
 		return withPrefix([]string{"bash", "zsh", "fish"}, current)
 	case command == "runs" && len(positional) == 0:
 		return withPrefix([]string{"retry", "show"}, current)
+	case command == "apps" && len(positional) == 0:
+		return withPrefix([]string{"show", "update", "update-modules"}, current)
+	case command == "maintenance" && len(positional) == 1:
+		return withPrefix([]string{"on", "off"}, current)
 	case len(positional) == 0:
 		if res := resourceNamed(command); res != nil && !res.noShow {
 			return withPrefix([]string{"show"}, current)
@@ -128,6 +140,7 @@ func commandNames() []string {
 	names := []string{
 		"login", "logout", "whoami", "namespaces", "use", "update", "completion",
 		"attention", "restore-points", "logs", "mcp", "help", "version", "backup", "restart",
+		"maintenance",
 	}
 	for _, res := range resources {
 		names = append(names, res.name)
@@ -152,8 +165,11 @@ func (a *App) flagsOf(command string) *flag.FlagSet {
 		}
 	}
 	name, args := command, []string{"-h"}
-	if command == "runs retry" {
+	switch command {
+	case "runs retry":
 		name, args = "runs", []string{"retry", "-h"}
+	case "apps update", "apps update-modules":
+		name, args = "apps", []string{strings.TrimPrefix(command, "apps "), "-h"}
 	}
 	quiet.dispatch(name, args)
 	return defined

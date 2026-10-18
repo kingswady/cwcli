@@ -126,7 +126,7 @@ cw restore-points shop --json
 What each change to the app did — the commits it moved, how many modules its update migrated, the backup taken
 before it — and the way back. OUTCOME `failed, kept as it was` is an update that failed and left the app as it
 was; UNDO `instant until …` means the database from before the change is still held, so undoing it is a rename,
-not a restore. Roll back from the dashboard (cw is read-only).
+not a restore. Roll back from the dashboard (cw does not roll back).
 
 ### Names several records share
 
@@ -196,6 +196,10 @@ matches text, any case. The token needs **Logs** in what it can read.
 cw backup shop                   # back the app up now (--format dump: the database only)
 cw restart shop                  # restart it
 cw runs retry 4812               # run a failed run again, from the step that failed
+cw apps update shop              # latest code: pulled, rebuilt, the modules the pull changed updated
+cw apps update shop --quick      # pull and restart on the same image (--modules none: no module update)
+cw apps update-modules shop sale stock  # odoo -u of those modules, the code as it is
+cw maintenance shop on           # the maintenance page for its users, until: cw maintenance shop off
 cw restart shop --wait           # …and follow the run until it ends
 ```
 
@@ -208,9 +212,16 @@ refuses (exit 2).
 - **Restart** is refused while an update, a backup or a restore of the app runs: it never cancels them.
 - **Retry** is refused while an automatic retry is due in a few minutes (`--now` retries anyway), or when a
   newer run of the same record exists.
+- **`cw apps update`**, **`cw apps update-modules`** and **`cw maintenance`** are refused while something runs on the app, as restart
+  is, and while a version upgrade holds it. `--modules` picks what an update's module update covers:
+  `changed` (the default, what the pull changed), `configured` (the app's own scope) or `none` (`--quick`
+  only). A production app is backed up first, in the same queue — the dashboard's default; `--no-backup`
+  skips it, `--backup` asks for it elsewhere (`--backup-format dump`: the database only). With `--wait`, cw
+  follows the backup, then the change; a failed backup leaves the app unchanged. `cw update` is cw's own
+  update only: `cw update shop` says to use `cw apps update shop`.
 
-`--wait` prints each step as its state changes — and, for a backup, what the watcher on the server reports
-until it is done ("Watcher: Dumping the database") — and exits `0` when the run is done, `1` when it failed, `4`
+`--wait` prints each step as its state changes — and, for a long backup, what the watcher on the server
+reports until it is done ("Watcher: Dumping the database") — and exits `0` when the run is done, `1` when it failed, `4`
 when it is still going after `--timeout` (default `30m`); Ctrl-C stops waiting, not the run. Without
 `--wait`, cw prints the run's id: `cw runs show <id>` follows it.
 
@@ -234,10 +245,17 @@ claude mcp add -s user cloudwady -- cw mcp   # Claude Code, in every project
 { "mcpServers": { "cloudwady": { "command": "cw", "args": ["mcp"] } } }
 ```
 
-The agent gets the same read-only functions as the CLI — projects, apps and their URLs, servers, installed
-services, backups, restore points, runs, logs and what needs attention — limited to the token's namespaces and what it may read, plus prompts such as
-`triage` and `why_failed`. A client that speaks HTTP can connect to `https://www.cloudwady.com/mcp` directly,
-with the header `Authorization: Bearer cwk_…`.
+The agent gets the same functions as the CLI — projects, apps and their URLs, servers, installed services,
+backups, restore points, runs, logs and what needs attention — limited to the token's namespaces and what it
+may read, plus prompts such as `triage` and `why_failed`. A client that speaks HTTP can connect to
+`https://www.cloudwady.com/mcp` directly, with the header `Authorization: Bearer cwk_…`.
+
+**Changes (back up, restart, retry)** are offered only to clients that can show a confirmation form (MCP
+elicitation), e.g. Claude Code, and only when the token holds them. Each one asks you in your client first —
+"Restart shop (Shop / staging)?", and for a production app its name typed — and runs only once you said yes;
+declining does nothing. The answer comes from that form, never from the agent. A client speaking MCP
+2026-07-28 does the round trip itself; for an older (2025) client `cw mcp` puts the platform's question to it
+as an `elicitation/create` request and hands the answer back.
 
 ## In CI
 

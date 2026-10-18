@@ -15,8 +15,8 @@ cmd/cw                    entry point: builds commands.App with the version, run
 
 | Package      | Owns                                                                                     | May import                          |
 | ------------ | ---------------------------------------------------------------------------------------- | ----------------------------------- |
-| `commands`   | every command (`account`, `resources` + `details`, `restorepoints`, `logs`, `attention`, `writes`, `completion`, `update`, `mcp`) and `cli.go` | all of the below |
-| `mcpbridge`  | `Bridge`: forwards an AI client's messages with the MCP headers the platform checks       | —                                   |
+| `commands`   | every command (`account`, `resources` + `details`, `restorepoints`, `logs`, `attention`, `writes` + `updates`, `completion`, `update`, `mcp`) and `cli.go` | all of the below |
+| `mcpbridge`  | `Bridge`: forwards an AI client's messages with the MCP headers the platform checks; runs a change's confirmation for a 2025 client (`confirm.go`) | — |
 | `selfupdate` | `LatestTag`, `Fetch`, `ReplaceExecutable`, `Newer`                                         | `platform`                          |
 | `config`     | `Config`, `Resolve` (flag → `CW_URL` → saved → default), `SecretStore`                     | `platform`                          |
 | `output`     | `Clean`, `Text`, `LogLine`, `Table`, `WriteTable`, `Colorize`, `Style`, `Ago`, `LocalTime` | —                                   |
@@ -41,6 +41,18 @@ cmd/cw                    entry point: builds commands.App with the version, run
   `--yes` without a terminal), `postWrite` (one `Idempotency-Key` per command, reused on its own retries of a
   429 or a lost connection: `platform.NetworkError`), `writeError` (a refusal's code and `reason` in words) and
   `waitRun` (`--wait`: the run polled until it ends; exit 1 failed, 4 still going, 130 Ctrl-C).
+  `waitAfterBackup` follows the backup a change takes first (`backup_run_id`), then the change, on one
+  `--timeout`. `commands/updates.go` holds `cw maintenance`, `cw apps update` and `cw apps update-modules`
+  (subcommands of `apps`, as `runs retry` is of `runs`). `cw update` stays cw's own update and nothing else:
+  `updateSelf` answers an app named there, or a flag only an app's update takes, with where that went
+  (`namesSomething` skips the values of `updateValueFlags`; a test keeps that list whole).
+- **A change through `cw mcp`** — `mcpbridge/confirm.go`. The platform offers a change only to a 2026-07-28
+  request that declares form elicitation, and answers it `input_required` (a form and a signed `requestState`).
+  A 2026-07-28 client runs that itself and passes through untouched. For a 2025 client whose `initialize`
+  declared `elicitation` (empty, or with `form`), the bridge sends `tools/list` and `tools/call` the 2026-07-28
+  way, puts each form to the client as an `elicitation/create` request (answers routed by id while the read
+  loop keeps serving), retries with the answer, and drops any `inputResponses` / `requestState` a request
+  brought itself: only the form confirms. At most `maxRounds` questions, each waiting `confirmWait`.
 - **A name lookup** — `resolveID` in `commands/resources.go`, the one place a name becomes an id. It asks the
   list with the lookup's `scope` (namespace, `--all`, the filters given) and, where the resource has a
   `nameSearch` parameter (apps: `search`), only for the names containing it; it keeps the exact matches, any

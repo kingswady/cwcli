@@ -161,6 +161,9 @@ var cellStyles = map[string]func(string) string{
 	"main":           yesNoColor,
 	"on_storage":     yesNoColor,
 	"on_server":      yesNoColor,
+	"maintenance": func(v string) string {
+		return map[string]string{"on": Yellow}[v]
+	},
 	"verified": func(v string) string {
 		return map[string]string{"yes": Green, "no": Yellow}[v]
 	},
