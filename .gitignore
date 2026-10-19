@@ -2,3 +2,6 @@ bin/
 dist/
 /cw
 /cw.exe
+
+# Written by the release (cw __reference --json).
+cw-reference.json

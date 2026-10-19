@@ -37,6 +37,10 @@ cmd/cw                    entry point: builds commands.App with the version, run
 - **Tab completion** — `commands/completion.go`. The scripts ask `cw __complete <words>`, which reads a
   command's flags by running it with `-h` on a quiet copy of the app (`flagsDefined`): a command must define
   its flags before it does anything else. Fixed flag values live in `flagValues`. It never calls the platform.
+- **The CLI reference** — `commands/reference.go`. `cw __reference --json` (hidden) lists every command the
+  help lists, with its usage, description, flags (the same flag sets completion reads) and examples; the release
+  writes it to `cw-reference.json`, publishes it beside the archives and lists it in the signed `checksums.txt`.
+  The platform's `/docs/reference/cli` renders it.
 - **A command that changes something** — `commands/writes.go`: `confirm` (y/N, a production app by its name,
   `--yes` without a terminal), `postWrite` (one `Idempotency-Key` per command, reused on its own retries of a
   429 or a lost connection: `platform.NetworkError`), `writeError` (a refusal's code and `reason` in words) and
