@@ -219,6 +219,10 @@ func (a *App) Run(args []string) int {
 		// Asked on every Tab: no hints, no network, nothing on stderr.
 		return a.complete(rest)
 	}
+	if name == referenceCommand {
+		// Run by the release to write cw-reference.json: no hints, no network.
+		return a.exit(a.reference(rest))
+	}
 	code := a.dispatch(name, rest)
 	a.afterCommand(name, code)
 	return code
