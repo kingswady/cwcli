@@ -23,7 +23,7 @@ import (
 const referenceCommand = "__reference"
 
 // referenceGroups are the help's sections that list commands, in their order.
-var referenceGroups = []string{"Account", "Read", "Change", "AI agents"}
+var referenceGroups = []string{"Account", "Read", "Change", "Sign in", "AI agents"}
 
 // subcommands are the commands of two words the help lists.
 var subcommands = []string{"runs retry", "apps update", "apps update-modules"}

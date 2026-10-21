@@ -55,6 +55,8 @@ type App struct {
 	// flagsDefined, when set, is handed each flag set a command defines
 	// (completion reads a command's flags this way).
 	flagsDefined func(*flag.FlagSet)
+	// sshRunner, when set, runs cw ssh's ssh instead of the real one (tests).
+	sshRunner func(args []string) error
 }
 
 // New is cw as the terminal runs it: this machine's config, keychain and streams.
@@ -264,6 +266,8 @@ func (a *App) dispatch(name string, rest []string) int {
 		return a.exit(a.backup(rest))
 	case "restart":
 		return a.exit(a.restart(rest))
+	case "ssh":
+		return a.exit(a.ssh(rest))
 	}
 	if name == "runs" && len(rest) > 0 && rest[0] == "retry" {
 		return a.exit(a.runsRetry(rest[1:]))
@@ -343,6 +347,9 @@ Change (asks first; --yes from a script; the token needs the function ticked)
                   …or some of its modules    cw apps update-modules <app> sale stock [--wait]
   maintenance     Maintenance page on / off  cw maintenance <app> on|off [--wait]
   (an update backs a production app up first: --no-backup skips it, --backup asks for it elsewhere)
+
+Sign in
+  ssh             Root on a server, as you   cw ssh <server> [-- command]: an hour, for your own key
 
 AI agents
   mcp             Serve the platform's tools to an AI client (stdio): claude mcp add -s user cloudwady -- cw mcp

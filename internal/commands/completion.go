@@ -140,7 +140,7 @@ func commandNames() []string {
 	names := []string{
 		"login", "logout", "whoami", "namespaces", "use", "update", "completion",
 		"attention", "restore-points", "logs", "mcp", "help", "version", "backup", "restart",
-		"maintenance",
+		"maintenance", "ssh",
 	}
 	for _, res := range resources {
 		names = append(names, res.name)
