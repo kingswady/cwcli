@@ -46,6 +46,8 @@ func sshPlatform(t *testing.T, validBefore string, calls *int) *httptest.Server 
 func sshHarness(t *testing.T, server *httptest.Server) (*harness, *[]string) {
 	t.Helper()
 	h := newHarness(t, server)
+	// Where cw keeps its files on macOS has a space in it.
+	h.app.configDir = filepath.Join(t.TempDir(), "Application Support", "cw")
 	home := t.TempDir()
 	h.env["HOME"] = home
 	if err := os.MkdirAll(filepath.Join(home, ".ssh"), 0o700); err != nil {
@@ -72,9 +74,9 @@ func TestSSHSignsInToRootWithACertificateForYourKey(t *testing.T) {
 	dir := filepath.Join(h.app.configDir, "ssh")
 	want := strings.Join([]string{
 		"-i", filepath.Join(h.env["HOME"], ".ssh", "id_ed25519"),
-		"-o", "CertificateFile=" + filepath.Join(dir, "41-cert.pub"),
+		"-o", `CertificateFile="` + filepath.Join(dir, "41-cert.pub") + `"`,
 		"-o", "IdentitiesOnly=yes",
-		"-o", "UserKnownHostsFile=" + filepath.Join(dir, "41-known_hosts"),
+		"-o", `UserKnownHostsFile="` + filepath.Join(dir, "41-known_hosts") + `"`,
 		"-o", "StrictHostKeyChecking=yes",
 		"-p", "2222", "root@192.0.2.9", "uptime", "-p",
 	}, " ")

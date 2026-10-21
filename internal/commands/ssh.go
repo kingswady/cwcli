@@ -196,9 +196,9 @@ func sshArgs(key, dir, id string, certificate sshCertificate, command []string) 
 	}
 	args := []string{
 		"-i", key,
-		"-o", "CertificateFile=" + filepath.Join(dir, id+"-cert.pub"),
+		"-o", "CertificateFile=" + optionPath(filepath.Join(dir, id+"-cert.pub")),
 		"-o", "IdentitiesOnly=yes",
-		"-o", "UserKnownHostsFile=" + filepath.Join(dir, id+"-known_hosts"),
+		"-o", "UserKnownHostsFile=" + optionPath(filepath.Join(dir, id+"-known_hosts")),
 		"-o", checking,
 	}
 	if port := certificate.Port.String(); port != "" && port != "22" {
@@ -206,6 +206,12 @@ func sshArgs(key, dir, id string, certificate sshCertificate, command []string) 
 	}
 	args = append(args, certificate.User+"@"+certificate.Host)
 	return append(args, command...)
+}
+
+// optionPath quotes a path for an -o value: ssh ends the value at a space, and
+// cw's folder on macOS is under "Application Support".
+func optionPath(path string) string {
+	return `"` + path + `"`
 }
 
 // runSSH runs ssh in this terminal; tests replace it.
