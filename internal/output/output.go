@@ -169,6 +169,19 @@ func Ago(value any) string {
 	}
 }
 
+// Elapsed is how long something has gone on: "42s", "1m 05s", "1h 02m".
+func Elapsed(d time.Duration) string {
+	d = d.Round(time.Second)
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm %02ds", int(d.Minutes()), int(d.Seconds())%60)
+	default:
+		return fmt.Sprintf("%dh %02dm", int(d.Hours()), int(d.Minutes())%60)
+	}
+}
+
 // Expires is when something ends: "in 41 days", or how long ago it did.
 func Expires(value any) string {
 	t, ok := ParseTime(value)

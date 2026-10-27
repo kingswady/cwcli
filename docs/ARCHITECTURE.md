@@ -41,7 +41,7 @@ cmd/cw                    entry point: builds commands.App with the version, run
   help lists, with its usage, description, flags (the same flag sets completion reads) and examples; the release
   writes it to `cw-reference.json`, publishes it beside the archives and lists it in the signed `checksums.txt`.
   The platform's `/docs/reference/cli` renders it.
-- **A command that changes something** — `commands/writes.go`: `confirm` (y/N, a production app by its name,
+- **A command that changes something** — `commands/writes.go`: `confirm` (y/N, a change to a production app by its name,
   `--yes` without a terminal), `postWrite` (one `Idempotency-Key` per command, reused on its own retries of a
   429 or a lost connection: `platform.NetworkError`), `writeError` (a refusal's code and `reason` in words) and
   `waitRun` (`--wait`: the run polled until it ends; exit 1 failed, 4 still going, 130 Ctrl-C).

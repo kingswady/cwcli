@@ -202,7 +202,7 @@ func stateColor(state string) string {
 		return Cyan
 	case state == "deploy" || state == "done" || state == "successful":
 		return Green
-	case state == "running" || state == "partial" || state == "starting" || state == "queued":
+	case state == "running" || state == "partial" || state == "starting" || state == "started" || state == "queued":
 		return Cyan
 	case state == "retrying":
 		return Yellow

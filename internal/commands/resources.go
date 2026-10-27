@@ -775,8 +775,9 @@ func printSteps(a *App, run record, out output.Table) error {
 	var reasons []string
 	for i, raw := range steps {
 		step, _ := raw.(record)
+		state := stepState(run, i, len(steps), output.Text(step["state"]))
 		rows = append(rows, []string{
-			strconv.Itoa(i + 1), output.Text(step["name"]), out.Cell("state", output.Text(step["state"])),
+			strconv.Itoa(i + 1), output.Text(step["name"]), out.Cell("state", state),
 			output.LocalTime(step["started_at"]), output.LocalTime(step["updated_at"]),
 		})
 		if reason := output.Text(step["reason"]); reason != "-" {
