@@ -240,13 +240,22 @@ type writeCommand struct {
 	opts     *writeFlags
 	started  func(writeAnswer) string // the line once it started
 	extraRun func(writeAnswer) string // already_running and the like; "" when none
+	// appUntouched: it changes nothing in the app (a backup), so a production
+	// app is asked y/N too — typing its name is for changes that can break it.
+	appUntouched bool
+	// finished, when set, reports what the run made once --wait saw it done.
+	finished func(writeAnswer)
 }
 
 func (a *App) runWrite(c *platform.Client, cmd writeCommand, out output.Table) error {
 	if cmd.opts.asJSON && cmd.opts.wait {
 		return usagef("--json prints the platform's answer; follow the run with cw runs show <id> --json")
 	}
-	if err := a.confirm(cmd.opts, cmd.action, cmd.note, cmd.subject); err != nil {
+	asked := cmd.subject
+	if cmd.appUntouched {
+		asked.production = false
+	}
+	if err := a.confirm(cmd.opts, cmd.action, cmd.note, asked); err != nil {
 		return err
 	}
 	raw, _, err := a.postWrite(c, cmd.path, cmd.body)
@@ -275,7 +284,13 @@ func (a *App) runWrite(c *platform.Client, cmd writeCommand, out output.Table) e
 		fmt.Fprintf(a.stderr, "Follow it: cw runs show %s  (or add --wait)\n", runID)
 		return nil
 	}
-	return a.waitAfterBackup(c, answer, cmd.opts.timeout, out)
+	if err := a.waitAfterBackup(c, answer, cmd.opts.timeout, out); err != nil {
+		return err
+	}
+	if cmd.finished != nil {
+		cmd.finished(answer)
+	}
+	return nil
 }
 
 // waitAfterBackup follows the change's run, and first the backup's when one
@@ -327,7 +342,8 @@ func (a *App) backup(args []string) error {
 	s := subjectOf(app, "name")
 	return a.runWrite(c, writeCommand{
 		name: "cw backup", action: "Back up " + s.name, path: "/apps/" + id + "/backup",
-		body: map[string]any{"format": *format}, subject: s, opts: opts,
+		body: map[string]any{"format": *format}, subject: s, opts: opts, appUntouched: true,
+		finished: func(w writeAnswer) { a.printBackupResult(c, w.BackupID.String()) },
 		started: func(w writeAnswer) string {
 			return fmt.Sprintf("Backup of %s started: run %s (backup %s).", s.name, w.RunID, w.BackupID)
 		},
@@ -342,6 +358,56 @@ func (a *App) backup(args []string) error {
 				s.name, w.BackupID, w.RunID)
 		},
 	}, out)
+}
+
+// printBackupResult says what a finished backup made and where it is kept:
+// "Backup 9482: 432.5 MB zip, checked — on the server and cw-sftp (uploading)."
+// The backup is made whatever happens here; a failed read only costs the summary.
+func (a *App) printBackupResult(c *platform.Client, id string) {
+	if id == "" {
+		return
+	}
+	var backup record
+	raw, err := c.Get("/backups/"+id, nil)
+	if err == nil {
+		err = platform.Decode(raw, &backup)
+	}
+	if err != nil {
+		fmt.Fprintf(a.stderr, "cw: %s — see it with cw backups show %s\n", output.Clean(err.Error()), id)
+		return
+	}
+	made := output.Megabytes(backup["size_mb"]) + " " + output.Text(backup["format"])
+	if verified, _ := backup["verified"].(bool); verified {
+		made += ", checked"
+	}
+	fmt.Fprintf(a.stdout, "Backup %s: %s — %s.\n", id, made, keptOn(backup))
+	fmt.Fprintf(a.stdout, "See it: cw backups show %s\n", id)
+}
+
+// keptOn is where a backup is: "on the server and cw-sftp (uploading)".
+func keptOn(backup record) string {
+	var places []string
+	if on, _ := backup["on_server"].(bool); on {
+		places = append(places, "the server")
+	}
+	for _, held := range records(backup["offsite"]) {
+		name := output.Text(held["storage"])
+		switch on, _ := held["on_storage"].(bool); {
+		case on:
+			places = append(places, name)
+		case output.Text(held["state"]) == "error":
+			places = append(places, name+" (upload failed)")
+		default:
+			places = append(places, name+" (uploading)")
+		}
+	}
+	if len(places) == 0 {
+		return "nowhere any more"
+	}
+	if len(places) == 1 {
+		return "on " + places[0]
+	}
+	return "on " + strings.Join(places[:len(places)-1], ", ") + " and " + places[len(places)-1]
 }
 
 func (a *App) restart(args []string) error {
@@ -442,7 +508,7 @@ func (a *App) writeClient(opts *writeFlags) (*platform.Client, output.Table, err
 
 func (a *App) writeUsage(fs *flag.FlagSet, usage, about string) func() {
 	return func() {
-		fmt.Fprintf(a.stderr, "Usage: %s\n\n%s\n\nIt asks first: a production app by typing its name, anything else y/N.\n"+
+		fmt.Fprintf(a.stderr, "Usage: %s\n\n%s\n\nIt asks first: a change to a production app by typing its name, anything else y/N.\n"+
 			"From a script, --yes. The token needs the function ticked in My Settings → API Tokens.\n\nFlags:\n",
 			usage, about)
 		fs.PrintDefaults()
@@ -458,7 +524,7 @@ func (a *App) waitRun(c *platform.Client, id string, timeout time.Duration, out 
 	defer stop()
 	deadline := a.clock().Add(timeout)
 	seen := map[int]string{}
-	watched := ""
+	watched := &watchLine{}
 	for {
 		raw, err := c.GetContext(ctx, "/runs/"+id, nil)
 		if ctx.Err() != nil {
@@ -467,6 +533,7 @@ func (a *App) waitRun(c *platform.Client, id string, timeout time.Duration, out 
 		if pause, done, err := a.pollFailure(err); done {
 			return err
 		} else if pause > 0 {
+			watched.open = false // the failure was said after it
 			if !a.wait(ctx, pause) {
 				return a.stoppedWaiting(id)
 			}
@@ -476,8 +543,10 @@ func (a *App) waitRun(c *platform.Client, id string, timeout time.Duration, out 
 		if err := platform.Decode(raw, &run); err != nil {
 			return err
 		}
-		a.printStepChanges(run, seen, out)
-		watched = a.printWatcherChange(run, watched, out)
+		if a.printStepChanges(run, seen, out) {
+			watched.open = false
+		}
+		a.printWatcherChange(run, watched, out)
 		if result, ended := runEnded(run); ended {
 			return a.reportEnd(id, run, result, out)
 		}
@@ -512,26 +581,64 @@ func (a *App) stoppedWaiting(id string) error {
 	return errStoppedWaiting
 }
 
-func (a *App) printStepChanges(run record, seen map[int]string, out output.Table) {
-	for i, step := range records(run["steps"]) {
+// printStepChanges prints each step whose state changed; it says whether it printed.
+func (a *App) printStepChanges(run record, seen map[int]string, out output.Table) bool {
+	steps := records(run["steps"])
+	printed := false
+	for i, step := range steps {
 		state := output.Text(step["state"])
 		if seen[i] == state {
 			continue
 		}
 		seen[i] = state
-		fmt.Fprintf(a.stdout, "  %d. %s  %s\n", i+1, output.Text(step["name"]), out.Cell("state", state))
+		printed = true
+		shown := stepState(run, i, len(steps), state)
+		fmt.Fprintf(a.stdout, "  %d. %s  %s\n", i+1, output.Text(step["name"]), out.Cell("state", shown))
 	}
+	return printed
+}
+
+// stepState is a step's state as cw says it. The last step of a run whose
+// watcher still waits only launched the work on the server: it has started,
+// and the watcher says how the work went.
+func stepState(run record, i, count int, state string) string {
+	if state == "successful" && i == count-1 && watcherWaits(run) {
+		return "started"
+	}
+	return state
+}
+
+func watcherWaits(run record) bool {
+	watcher, _ := run["watcher"].(record)
+	return watcher != nil && output.Text(watcher["state"]) == "waiting"
+}
+
+// watchLine is the watcher's line as last printed, and since when it says so.
+type watchLine struct {
+	text  string
+	since time.Time
+	// open: nothing was printed after it, so a terminal redraws it in place.
+	open bool
 }
 
 // printWatcherChange prints what the watcher reports when it changes, once the
-// steps have launched the work it watches; it returns what was printed last.
-func (a *App) printWatcherChange(run record, last string, out output.Table) string {
+// steps have launched the work it watches. In a terminal a line that still
+// waits is redrawn with how long it has said so, so a long dump never looks stuck.
+func (a *App) printWatcherChange(run record, last *watchLine, out output.Table) {
 	line := watcherLine(run, out)
-	if line == "" || line == last || !stepsFinished(run) {
-		return last
+	if line == "" || !stepsFinished(run) {
+		return
 	}
-	fmt.Fprintln(a.stdout, "  "+line)
-	return line
+	live := watcherWaits(run) && a.stdoutIsTerminal()
+	if line != last.text {
+		*last = watchLine{text: line, since: a.clock(), open: live}
+		fmt.Fprintln(a.stdout, "  "+line)
+		return
+	}
+	if live && last.open {
+		took := output.Elapsed(a.clock().Sub(last.since))
+		fmt.Fprintf(a.stdout, "\033[1A\r\033[K  %s %s\n", line, out.Label("· "+took))
+	}
 }
 
 func stepsFinished(run record) bool {

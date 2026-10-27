@@ -204,11 +204,11 @@ cw restart shop --wait           # …and follow the run until it ends
 ```
 
 Each asks first, naming the app, its project and environment: `Restart shop (Shop / staging)? [y/N]`. A
-production app is confirmed by typing its name. From a script — no terminal to ask in — pass `--yes`, or cw
-refuses (exit 2).
+change to a production app is confirmed by typing its name; a backup, which changes nothing in the app, by y.
+From a script — no terminal to ask in — pass `--yes`, or cw refuses (exit 2).
 
 - **Backup** does what the dashboard's Backup does. When a backup of the app already runs, cw says so and
-  starts nothing; `--wait` then follows that one.
+  starts nothing; `--wait` then follows that one, and ends with what it made: size, format and where it is kept.
 - **Restart** is refused while an update, a backup or a restore of the app runs: it never cancels them.
 - **Retry** is refused while an automatic retry is due in a few minutes (`--now` retries anyway), or when a
   newer run of the same record exists.

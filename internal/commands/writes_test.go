@@ -169,20 +169,36 @@ func TestWithoutATerminalAScriptMustSayYes(t *testing.T) {
 
 func TestAProductionAppIsConfirmedByItsName(t *testing.T) {
 	server, api := newWriteAPI(t, map[string][]answer{
-		"GET /apps":           {appsList},
-		"GET /apps/8":         {ok(200, productionApp)},
-		"POST /apps/8/backup": {ok(202, map[string]any{"state": "started", "run_id": 50, "backup_id": 9482})},
+		"GET /apps":            {appsList},
+		"GET /apps/8":          {ok(200, productionApp)},
+		"POST /apps/8/restart": {ok(202, map[string]any{"state": "started", "run_id": 50})},
 	})
 	h := writeHarness(t, server, true, "y\n")
-	if code := h.run("backup", "erp"); code != 1 || len(api.posts) != 0 {
+	if code := h.run("restart", "erp"); code != 1 || len(api.posts) != 0 {
 		t.Fatalf("y is not the name: exit %d, posts %d", code, len(api.posts))
 	}
 	if !strings.Contains(h.stderr.String(), "a production app. Type erp to go on") {
 		t.Errorf("asked %q", h.stderr)
 	}
 	h = writeHarness(t, server, true, "erp\n")
+	if code := h.run("restart", "erp"); code != 0 || len(api.posts) != 1 {
+		t.Fatalf("exit %d, posts %d: %s", code, len(api.posts), h.stderr)
+	}
+}
+
+// A backup changes nothing in the app: a production one is asked y/N like any other.
+func TestAProductionBackupIsAskedYesOrNo(t *testing.T) {
+	server, api := newWriteAPI(t, map[string][]answer{
+		"GET /apps":           {appsList},
+		"GET /apps/8":         {ok(200, productionApp)},
+		"POST /apps/8/backup": {ok(202, map[string]any{"state": "started", "run_id": 50, "backup_id": 9482})},
+	})
+	h := writeHarness(t, server, true, "y\n")
 	if code := h.run("backup", "erp", "--format", "dump"); code != 0 {
 		t.Fatalf("exit %d: %s", code, h.stderr)
+	}
+	if !strings.Contains(h.stderr.String(), "Back up erp (ERP / production)? [y/N]") {
+		t.Errorf("asked %q", h.stderr)
 	}
 	if api.posts[0].body["format"] != "dump" || !strings.Contains(h.stdout.String(), "Backup of erp started: run 50 (backup 9482).") {
 		t.Errorf("posts %+v, stdout %q", api.posts, h.stdout)
@@ -399,6 +415,13 @@ func TestWaitFollowsABackupThroughItsWatcher(t *testing.T) {
 			watched("running", "waiting", "Packing the archive", ""),
 			watched("done", "completed", "", ""),
 		},
+		"GET /backups/9482": {ok(200, map[string]any{
+			"id": 9482, "size_mb": 432.5, "format": "zip", "verified": true, "on_server": true,
+			"offsite": []any{
+				map[string]any{"storage": "cw-sftp", "on_storage": true, "state": "done"},
+				map[string]any{"storage": "s3", "on_storage": false, "state": "running"},
+			},
+		})},
 	}
 	server, _ := newWriteAPI(t, answers)
 	h := writeHarness(t, server, false, "")
@@ -406,13 +429,16 @@ func TestWaitFollowsABackupThroughItsWatcher(t *testing.T) {
 	if code := h.run("backup", "shop", "--yes", "--wait"); code != 0 {
 		t.Fatalf("exit %d: %s", code, h.stderr)
 	}
+	// The step only launched the work: it has started, and the watcher says how it went.
 	want := strings.Join([]string{
-		"  1. Backup  successful",
+		"  1. Backup  started",
 		"  Watcher: waiting for the work on the server to finish",
 		"  Watcher: Dumping the database",
 		"  Watcher: Packing the archive",
 		"  Watcher: finished",
 		"Run 41976 done.",
+		"Backup 9482: 432.5 MB zip, checked — on the server, cw-sftp and s3 (uploading).",
+		"See it: cw backups show 9482",
 	}, "\n")
 	if !strings.Contains(h.stdout.String(), want) {
 		t.Errorf("want\n%s\nin\n%s", want, h.stdout)
@@ -427,6 +453,40 @@ func TestWaitFollowsABackupThroughItsWatcher(t *testing.T) {
 	}
 	if got := strings.Count(h.stdout.String(), "Watcher: failed: Success marker not found or invalid"); got != 2 {
 		t.Errorf("want the failure as it happened and in the end report, got %d in\n%s", got, h.stdout)
+	}
+}
+
+// In a terminal the line that still waits is redrawn in place with how long it has.
+func TestAWaitingWatcherShowsHowLongInATerminal(t *testing.T) {
+	server, _ := newWriteAPI(t, map[string][]answer{
+		"GET /apps":           {appsList},
+		"GET /apps/7":         {ok(200, stagingApp)},
+		"POST /apps/7/backup": {ok(202, map[string]any{"state": "started", "run_id": 41976, "backup_id": 9482})},
+		"GET /runs/41976": {
+			watched("running", "waiting", "Dumping the database", ""),
+			watched("running", "waiting", "Dumping the database", ""),
+			watched("running", "waiting", "Dumping the database", ""),
+			watched("done", "completed", "", ""),
+		},
+	})
+	h := writeHarness(t, server, false, "")
+	h.app.stdoutIsTerminal = func() bool { return true }
+	h.app.wait = func(context.Context, time.Duration) bool { return true }
+	start := time.Date(2026, 10, 27, 19, 21, 0, 0, time.UTC)
+	calls := 0
+	h.app.clock = func() time.Time { calls++; return start.Add(time.Duration(calls) * 30 * time.Second) }
+	if code := h.run("backup", "shop", "--yes", "--wait", "--color", "never"); code != 0 {
+		t.Fatalf("exit %d: %s", code, h.stderr)
+	}
+	redraw := "\033[1A\r\033[K  Watcher: Dumping the database · "
+	if got := strings.Count(h.stdout.String(), redraw); got != 2 {
+		t.Fatalf("want the waiting line redrawn twice, got %d in %q", got, h.stdout)
+	}
+	if !strings.Contains(h.stdout.String(), redraw+"1m 00s\n") || !strings.Contains(h.stdout.String(), redraw+"2m 00s\n") {
+		t.Errorf("stdout %q", h.stdout)
+	}
+	if !strings.HasSuffix(strings.SplitN(h.stdout.String(), "Run 41976 done.", 2)[0], "  Watcher: finished\n") {
+		t.Errorf("the finished line is printed once, never redrawn: %q", h.stdout)
 	}
 }
 
