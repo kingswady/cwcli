@@ -57,6 +57,8 @@ type App struct {
 	flagsDefined func(*flag.FlagSet)
 	// sshRunner, when set, runs cw ssh's ssh instead of the real one (tests).
 	sshRunner func(args []string) error
+	// keygenRunner, when set, derives a public key instead of ssh-keygen (tests).
+	keygenRunner func(key string) (string, error)
 }
 
 // New is cw as the terminal runs it: this machine's config, keychain and streams.

@@ -47,7 +47,8 @@ func (a *App) ssh(args []string) error {
 			"Signs in to root on the server from this machine, with a certificate the platform signs for\n"+
 			"your own key: valid an hour, asked for again once it runs out. Register the key in My Settings\n"+
 			"→ SSH Keys first. It takes a Maintainer or Admin with terminal access to the server, and a\n"+
-			"token with servers.ssh_certificate ticked; the server's sign-in log names you.\n\nFlags:\n")
+			"token with servers.ssh_certificate ticked; the server's sign-in log names you. A key without its\n"+
+			".pub has its public key read by ssh-keygen -y (an encrypted key asks for its passphrase).\n\nFlags:\n")
 		fs.PrintDefaults()
 	}
 	own, command := splitCommand(args)
@@ -92,30 +93,71 @@ func splitCommand(args []string) (own, command []string) {
 	return args, nil
 }
 
-// sshKey is the private key and its public line: --key, else the first default key with a .pub beside it.
+// sshKey is the private key and its public line: --key, else the first default
+// key with a .pub beside it. A key without its .pub (copied over, restored from
+// a password manager, provisioned in CI) has its public line derived by
+// ssh-keygen; in the default search only the first key there is, so an
+// encrypted one asks for its passphrase once.
 func (a *App) sshKey(path string) (key, public string, err error) {
-	candidates := []string{path}
-	if path == "" {
-		home := a.getenv("HOME")
-		if home == "" {
-			return "", "", errors.New("no HOME to look for ~/.ssh in: name the key with --key")
-		}
-		candidates = nil
-		for _, name := range defaultKeys {
-			candidates = append(candidates, filepath.Join(home, ".ssh", name))
-		}
+	if path != "" {
+		key = a.expandHome(path)
+		public, err = a.publicKey(key)
+		return key, public, err
 	}
-	for _, candidate := range candidates {
-		candidate = a.expandHome(candidate)
-		line, readErr := os.ReadFile(candidate + ".pub")
-		if readErr == nil {
+	home := a.getenv("HOME")
+	if home == "" {
+		return "", "", errors.New("no HOME to look for ~/.ssh in: name the key with --key")
+	}
+	first := ""
+	for _, name := range defaultKeys {
+		candidate := filepath.Join(home, ".ssh", name)
+		if line, readErr := os.ReadFile(candidate + ".pub"); readErr == nil {
 			return candidate, strings.TrimSpace(string(line)), nil
 		}
-		if path != "" {
-			return "", "", fmt.Errorf("no public key beside %s: %w", candidate, readErr)
+		if _, statErr := os.Stat(candidate); first == "" && statErr == nil {
+			first = candidate
 		}
 	}
-	return "", "", errors.New("no SSH key in ~/.ssh (id_ed25519, id_ecdsa or id_rsa): name one with --key")
+	if first == "" {
+		return "", "", errors.New("no SSH key in ~/.ssh (id_ed25519, id_ecdsa or id_rsa): name one with --key")
+	}
+	public, err = a.publicKey(first)
+	return first, public, err
+}
+
+// publicKey is key's public line: its .pub, else what ssh-keygen -y reads from
+// the private key. cw never parses a private key itself.
+func (a *App) publicKey(key string) (string, error) {
+	line, readErr := os.ReadFile(key + ".pub")
+	if readErr == nil {
+		return strings.TrimSpace(string(line)), nil
+	}
+	derived, deriveErr := a.deriveKey(key)
+	if deriveErr != nil {
+		return "", fmt.Errorf("no public key for %s: no %s.pub (%v), and ssh-keygen -y could not read the key (%v)",
+			key, filepath.Base(key), readErr, deriveErr)
+	}
+	fmt.Fprintf(a.stderr, "cw: no %s.pub, so its public key came from ssh-keygen -y\n", filepath.Base(key))
+	return derived, nil
+}
+
+// deriveKey runs ssh-keygen -y on key in this terminal, so an encrypted key asks
+// for its passphrase; tests replace it.
+func (a *App) deriveKey(key string) (string, error) {
+	if a.keygenRunner != nil {
+		return a.keygenRunner(key)
+	}
+	cmd := exec.Command("ssh-keygen", "-y", "-f", key)
+	cmd.Stdin, cmd.Stderr = os.Stdin, os.Stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	line := strings.TrimSpace(string(out))
+	if len(strings.Fields(line)) < 2 {
+		return "", errors.New("ssh-keygen printed no public key")
+	}
+	return line, nil
 }
 
 func (a *App) expandHome(path string) string {
