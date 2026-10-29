@@ -104,9 +104,9 @@ cw urls --ssl expiring_soon      # apps' URLs: certificate and the outside-in ch
 cw servers
 cw installers --server prod-1
 cw backups --app shop            # OFFSITE: copies on external storage, of those made
-cw backups show 9482             # on the server or not, verified, each off-site copy
+cw backups show bkp_9m2x7k4q8tzn # on the server or not, verified, each off-site copy
 cw runs --app shop --state error
-cw runs show 4812                # steps, and why a failed step failed
+cw runs show run_4n8x2k7q9mzt    # steps, and why a failed step failed
 ```
 
 `cw apps show` lists each URL with its certificate (TLS, when it expires) and the platform's last check from
@@ -130,8 +130,9 @@ not a restore. Roll back from the dashboard (cw does not roll back).
 
 ### Names several records share
 
-An app, server or installer can be named by id or by name. When several share a name, cw lists them and asks
-for one — or narrow the name with the same filters the list takes:
+An app, server or installer can be named by id or by name. An id is the one cw lists, three letters for the kind
+and twelve characters (`app_7k2m9xq4pzta`); the numbers cw showed before still work for now, with a warning.
+When several share a name, cw lists them and asks for one — or narrow the name with the same filters the list takes:
 
 ```bash
 cw apps show v19-0 --project internal --env production
@@ -195,7 +196,7 @@ matches text, any case. The token needs **Logs** in what it can read.
 ```bash
 cw backup shop                   # back the app up now (--format dump: the database only)
 cw restart shop                  # restart it
-cw runs retry 4812               # run a failed run again, from the step that failed
+cw runs retry run_4n8x2k7q9mzt   # run a failed run again, from the step that failed
 cw apps update shop              # latest code: pulled, rebuilt, the modules the pull changed updated
 cw apps update shop --quick      # pull and restart on the same image (--modules none: no module update)
 cw apps update-modules shop sale stock  # odoo -u of those modules, the code as it is

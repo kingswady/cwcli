@@ -203,11 +203,31 @@ func writeError(c *platform.Client, command string, err error) error {
 // writeAnswer is what the platform answers a change. BackupRunID is the backup
 // taken first, when one was: RunID's run waits for it in the same queue.
 type writeAnswer struct {
-	State       string      `json:"state"`
-	RunID       json.Number `json:"run_id"`
-	BackupID    json.Number `json:"backup_id"`
-	BackupRunID json.Number `json:"backup_run_id"`
+	State       string    `json:"state"`
+	RunID       recordRef `json:"run_id"`
+	BackupID    recordRef `json:"backup_id"`
+	BackupRunID recordRef `json:"backup_run_id"`
 }
+
+// recordRef is a record's id in an answer: the platform's id (run_7k2m9xq4pzta),
+// or a number from a platform that still sends those. null is "".
+type recordRef string
+
+func (r *recordRef) UnmarshalJSON(data []byte) error {
+	var text string
+	if err := json.Unmarshal(data, &text); err == nil {
+		*r = recordRef(text)
+		return nil
+	}
+	var number json.Number
+	if err := json.Unmarshal(data, &number); err != nil {
+		return err
+	}
+	*r = recordRef(number.String())
+	return nil
+}
+
+func (r recordRef) String() string { return string(r) }
 
 func (a *App) resolveApp(c *platform.Client, ref string, opts *writeFlags, narrow map[string]*string, out output.Table) (string, record, error) {
 	apps := resourceNamed("apps")
@@ -457,7 +477,7 @@ func (a *App) runsRetry(args []string) error {
 		return usagef("name one run: cw runs retry <id>")
 	}
 	runID := positional[0]
-	if !isDigits(runID) {
+	if !isID(runID) {
 		return usagef("runs are named by id, not %q (cw runs lists them)", runID)
 	}
 	c, out, err := a.writeClient(opts)

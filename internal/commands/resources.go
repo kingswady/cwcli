@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -633,13 +634,23 @@ func (a *App) show(c *platform.Client, res *resource, opts *readFlags, ref strin
 // lookupPage is the page size a lookup by name reads (the API's maximum).
 const lookupPage = 200
 
+// recordID is a record's id as the platform gives it: three letters for its
+// kind, "_", twelve characters (app_7k2m9xq4pzta).
+var recordID = regexp.MustCompile(`^[a-z]{3}_[0-9a-hjkmnp-tv-z]{12}$`)
+
+// isID says whether ref names a record by id, not by name: the platform's id,
+// or a number, which the platform still takes for now (it answers Deprecation).
+func isID(ref string) bool {
+	return recordID.MatchString(ref) || isDigits(ref)
+}
+
 // resolveID accepts an id, or the exact name (any case) of one record the
 // token can see in scope s. Deleted and disabled records are left out unless
 // s.includeDeleted (--all); their ids still work. A resource with a name
 // search is asked only for the names containing ref; the others are paged
 // through, filtered by s.
 func (a *App) resolveID(c *platform.Client, res *resource, ref string, s scope, out output.Table) (string, error) {
-	if _, err := strconv.Atoi(ref); err == nil {
+	if isID(ref) {
 		return ref, nil
 	}
 	if !res.byName {

@@ -21,6 +21,9 @@ type Client struct {
 	UserAgent string
 	// TokenExpires is the X-Token-Expires-At of the last answer (RFC 3339).
 	TokenExpires string
+	// NumberDeprecated: an answer said a record was named by its number, which
+	// the platform is retiring for its ids (Deprecation, RFC 9745).
+	NumberDeprecated bool
 }
 
 // APIError is a refusal from the platform, with its machine-readable code.
@@ -108,6 +111,9 @@ func (c *Client) do(ctx context.Context, method, target string, body []byte, hea
 	defer resp.Body.Close()
 	if expires := resp.Header.Get("X-Token-Expires-At"); expires != "" {
 		c.TokenExpires = expires
+	}
+	if resp.Header.Get("Deprecation") != "" {
+		c.NumberDeprecated = true
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
 	if err != nil {

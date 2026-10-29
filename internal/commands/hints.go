@@ -20,10 +20,12 @@ const (
 	updateCheckPeriod = 24 * time.Hour
 )
 
-// afterCommand warns about a token that is about to expire and, at most once
-// a day, offers a newer cw. Both go to stderr and never change the exit code.
+// afterCommand warns about a token that is about to expire and a record named
+// by its number and, at most once a day, offers a newer cw. All go to stderr
+// and never change the exit code.
 func (a *App) afterCommand(name string, code int) {
 	a.warnExpiry()
+	a.warnNumber()
 	if (code == 0 || code == exitAttention) && !noUpdateOffer[name] {
 		a.offerUpdate()
 	}
@@ -42,6 +44,14 @@ func (a *App) warnExpiry() {
 		return
 	}
 	fmt.Fprintf(a.stderr, "\nThis API token expires %s — create a new one in My Settings → API Tokens.\n", output.Until(a.clock(), expires))
+}
+
+// warnNumber: a record was named by its number, which still works for now.
+func (a *App) warnNumber() {
+	if a.current == nil || !a.current.NumberDeprecated {
+		return
+	}
+	fmt.Fprintln(a.stderr, "\nRecords are named by their id now (app_7k2m9xq4pzta, as cw lists them); numbers stop working later.")
 }
 
 type updateState struct {
