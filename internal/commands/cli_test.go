@@ -119,6 +119,7 @@ func newHarness(t *testing.T, server *httptest.Server) *harness {
 		// Output captured into a buffer is never a terminal: plain unless asked.
 		stdoutIsTerminal: func() bool { return false },
 		stdinIsTerminal:  func() bool { return false },
+		stderrIsTerminal: func() bool { return false },
 		clock:            time.Now,
 	}
 	return h

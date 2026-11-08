@@ -21,6 +21,7 @@ import (
 	"github.com/kingswady/cwcli/internal/output"
 	"github.com/kingswady/cwcli/internal/platform"
 	"github.com/kingswady/cwcli/internal/selfupdate"
+	"github.com/kingswady/cwcli/internal/upload"
 )
 
 // App holds everything a command touches, so tests can swap each piece.
@@ -46,6 +47,10 @@ type App struct {
 	stdoutIsTerminal func() bool
 	// stdinIsTerminal tells a person running cw mcp by hand from an AI client.
 	stdinIsTerminal func() bool
+	// stderrIsTerminal decides whether an upload's progress is one line redrawn.
+	stderrIsTerminal func() bool
+	// uploadClient sends cw backups import's pieces (upload.NewHTTPClient when nil).
+	uploadClient *http.Client
 	// executable is the file cw update replaces.
 	executable func() (string, error)
 	// current is the client the command used, for its token's expiry.
@@ -86,8 +91,12 @@ func New(version string) *App {
 		stdinIsTerminal: func() bool {
 			return term.IsTerminal(int(os.Stdin.Fd()))
 		},
-		executable: selfupdate.ExecutablePath,
-		clock:      time.Now,
+		stderrIsTerminal: func() bool {
+			return term.IsTerminal(int(os.Stderr.Fd()))
+		},
+		uploadClient: upload.NewHTTPClient(),
+		executable:   selfupdate.ExecutablePath,
+		clock:        time.Now,
 	}
 	if fd := int(os.Stdin.Fd()); term.IsTerminal(fd) {
 		a.readSecret = func(prompt string) (string, error) { return readHidden(fd, a.stderr, prompt) }
@@ -280,6 +289,9 @@ func (a *App) dispatch(name string, rest []string) int {
 	if name == "apps" && len(rest) > 0 && rest[0] == "update-modules" {
 		return a.exit(a.updateModules(rest[1:]))
 	}
+	if name == "backups" && len(rest) > 0 && rest[0] == "import" {
+		return a.exit(a.importBackup(rest[1:]))
+	}
 	if res := resourceNamed(name); res != nil {
 		return a.exit(a.resource(res, rest))
 	}
@@ -301,7 +313,7 @@ func (a *App) exit(err error) int {
 		return 1
 	case errors.Is(err, errStillRunning):
 		return exitStillRunning
-	case errors.Is(err, errStoppedWaiting):
+	case errors.Is(err, errStoppedWaiting), errors.Is(err, errUploadStopped):
 		return exitInterrupted
 	case errors.As(err, &usage), errors.As(err, &refused) && refused.Status == http.StatusBadRequest:
 		// A 400 is the platform saying the command line was wrong (--limit 0).
@@ -348,6 +360,7 @@ Change (asks first; --yes from a script; the token needs the function ticked)
   apps update     Update an app              cw apps update <app> [--quick] [--modules …] [--wait]
                   …or some of its modules    cw apps update-modules <app> sale stock [--wait]
   maintenance     Maintenance page on / off  cw maintenance <app> on|off [--wait]
+  backups import  Restore a backup file      cw backups import <file> --app <app> [--wait]
   (an update backs a production app up first: --no-backup skips it, --backup asks for it elsewhere)
 
 Sign in

@@ -26,7 +26,7 @@ const referenceCommand = "__reference"
 var referenceGroups = []string{"Account", "Read", "Change", "Sign in", "AI agents"}
 
 // subcommands are the commands of two words the help lists.
-var subcommands = []string{"runs retry", "apps update", "apps update-modules"}
+var subcommands = []string{"runs retry", "apps update", "apps update-modules", "backups import"}
 
 // continuationSummaries name what a help line without a command of its own
 // ("…or some of its modules") stands for, as a sentence of its own.

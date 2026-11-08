@@ -18,7 +18,8 @@ import (
 )
 
 // The commands that change something: cw backup, cw restart, cw runs retry,
-// cw maintenance, cw apps update, cw apps update-modules (updates.go).
+// cw maintenance, cw apps update, cw apps update-modules (updates.go),
+// cw backups import (imports.go).
 // Each asks first (or takes --yes), sends one request with one Idempotency-Key
 // — reused on cw's own retries, so the platform acts once whatever happens on
 // the way — and with --wait follows the run it started.
@@ -265,11 +266,21 @@ type writeCommand struct {
 	appUntouched bool
 	// finished, when set, reports what the run made once --wait saw it done.
 	finished func(writeAnswer)
+	// first says the run that goes ahead of the change (backup_run_id); nil: a backup.
+	first *firstRun
+}
+
+// jsonOrWait refuses --json with --wait: one prints the answer, the other follows the run.
+func jsonOrWait(opts *writeFlags) error {
+	if opts.asJSON && opts.wait {
+		return usagef("--json prints the platform's answer; follow the run with cw runs show <id> --json")
+	}
+	return nil
 }
 
 func (a *App) runWrite(c *platform.Client, cmd writeCommand, out output.Table) error {
-	if cmd.opts.asJSON && cmd.opts.wait {
-		return usagef("--json prints the platform's answer; follow the run with cw runs show <id> --json")
+	if err := jsonOrWait(cmd.opts); err != nil {
+		return err
 	}
 	asked := cmd.subject
 	if cmd.appUntouched {
@@ -282,6 +293,11 @@ func (a *App) runWrite(c *platform.Client, cmd writeCommand, out output.Table) e
 	if err != nil {
 		return writeError(c, cmd.name, err)
 	}
+	return a.reportWrite(c, cmd, raw, out)
+}
+
+// reportWrite says what the platform answered a change and, with --wait, follows it.
+func (a *App) reportWrite(c *platform.Client, cmd writeCommand, raw json.RawMessage, out output.Table) error {
 	if cmd.opts.asJSON {
 		return output.WriteJSON(a.stdout, raw)
 	}
@@ -304,7 +320,11 @@ func (a *App) runWrite(c *platform.Client, cmd writeCommand, out output.Table) e
 		fmt.Fprintf(a.stderr, "Follow it: cw runs show %s  (or add --wait)\n", runID)
 		return nil
 	}
-	if err := a.waitAfterBackup(c, answer, cmd.opts.timeout, out); err != nil {
+	first := backupFirst
+	if cmd.first != nil {
+		first = *cmd.first
+	}
+	if err := a.waitAfterBackup(c, answer, first, cmd.opts.timeout, out); err != nil {
 		return err
 	}
 	if cmd.finished != nil {
@@ -313,23 +333,46 @@ func (a *App) runWrite(c *platform.Client, cmd writeCommand, out output.Table) e
 	return nil
 }
 
-// waitAfterBackup follows the change's run, and first the backup's when one
-// goes ahead of it in its queue: a failed backup leaves the change unstarted.
-// Both share one --timeout.
-func (a *App) waitAfterBackup(c *platform.Client, answer writeAnswer, timeout time.Duration, out output.Table) error {
+// firstRun is how --wait names the run that goes ahead of a change in its
+// queue: each line takes a run's id.
+type firstRun struct {
+	first  string // before following it
+	failed string // it failed: the change's run did not start
+	then   string // before following the change's run
+}
+
+var (
+	// backupFirst: a backup taken before an update or a module update.
+	backupFirst = firstRun{
+		first:  "Backup first: run %s",
+		failed: "The backup failed, so run %s did not start: the app was not changed.",
+		then:   "Then run %s:",
+	}
+	// importFirst: cw backups import, whose import makes the backup the restore restores.
+	importFirst = firstRun{
+		first:  "Import first: run %s",
+		failed: "The import failed, so the restore (run %s) did not start: the app was not changed.",
+		then:   "Then the restore: run %s",
+	}
+)
+
+// waitAfterBackup follows the change's run, and first the run that goes ahead
+// of it in its queue (backup_run_id: a backup, or a backup's import): when that
+// one fails, the change never starts. Both share one --timeout.
+func (a *App) waitAfterBackup(c *platform.Client, answer writeAnswer, words firstRun, timeout time.Duration, out output.Table) error {
 	runID, backupRun := answer.RunID.String(), answer.BackupRunID.String()
 	if backupRun == "" {
 		return a.waitRun(c, runID, timeout, out)
 	}
 	start := a.clock()
-	fmt.Fprintf(a.stdout, "Backup first: run %s\n", backupRun)
+	fmt.Fprintf(a.stdout, words.first+"\n", backupRun)
 	if err := a.waitRun(c, backupRun, timeout, out); err != nil {
 		if errors.Is(err, errRunFailed) {
-			fmt.Fprintf(a.stdout, "The backup failed, so run %s did not start: the app was not changed.\n", runID)
+			fmt.Fprintf(a.stdout, words.failed+"\n", runID)
 		}
 		return err
 	}
-	fmt.Fprintf(a.stdout, "Then run %s:\n", runID)
+	fmt.Fprintf(a.stdout, words.then+"\n", runID)
 	return a.waitRun(c, runID, timeout-a.clock().Sub(start), out)
 }
 

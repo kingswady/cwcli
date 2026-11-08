@@ -201,6 +201,7 @@ cw apps update shop              # latest code: pulled, rebuilt, the modules the
 cw apps update shop --quick      # pull and restart on the same image (--modules none: no module update)
 cw apps update-modules shop sale stock  # odoo -u of those modules, the code as it is
 cw maintenance shop on           # the maintenance page for its users, until: cw maintenance shop off
+cw backups import ./acme.zip --app shop  # restore a backup file from this computer into the app
 cw restart shop --wait           # …and follow the run until it ends
 ```
 
@@ -220,6 +221,16 @@ From a script — no terminal to ask in — pass `--yes`, or cw refuses (exit 2)
   skips it, `--backup` asks for it elsewhere (`--backup-format dump`: the database only). With `--wait`, cw
   follows the backup, then the change; a failed backup leaves the app unchanged. `cw update` is cw's own
   update only: `cw update shop` says to use `cw apps update shop`.
+- **`cw backups import <file> --app <app>`** replaces the app's database with a backup file from this
+  computer: an Odoo backup `.zip` (from Odoo's database manager or Odoo.sh, with or without the filestore), a
+  `pg_dump` custom dump (`.dump`) or plain SQL (`.sql`, `.sql.gz`); the platform reads which from the content.
+  The file goes in pieces straight to the app's server, its progress shown in the terminal; a dropped
+  connection resumes where it stopped, and Ctrl-C stops the upload and removes what got there. Then the
+  platform imports it — a file that is not an Odoo backup, is damaged or comes from another Odoo version than
+  the app's stops there, the app unchanged — and restores it. `--neutralize`, `--reset-admin-password` and
+  `--update` are the restore's options. With `--wait`, cw follows the import, then the restore. The file stays
+  among the app's backups, marked imported. The token needs both `apps.upload` and `apps.import`, and the
+  server's DownloaderWady 1.1.0 or later.
 
 `--wait` prints each step as its state changes — and, for a long backup, what the watcher on the server
 reports until it is done ("Watcher: Dumping the database") — and exits `0` when the run is done, `1` when it failed, `4`

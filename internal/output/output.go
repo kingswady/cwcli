@@ -194,6 +194,20 @@ func Expires(value any) string {
 	return Ago(value)
 }
 
+// Bytes is a size in bytes as Megabytes says one: "25 bytes", "512.0 KB",
+// "432.5 MB", "4.2 GB".
+func Bytes(n int64) string {
+	switch {
+	case n >= 1<<30:
+		return fmt.Sprintf("%.1f GB", float64(n)/(1<<30))
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.1f KB", float64(n)/(1<<10))
+	}
+	return fmt.Sprintf("%d bytes", n)
+}
+
 func Megabytes(value any) string {
 	n, ok := value.(json.Number)
 	if !ok {

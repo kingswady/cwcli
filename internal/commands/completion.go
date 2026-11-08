@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -94,13 +95,9 @@ func (a *App) candidates(words []string) []string {
 		return withPrefix(commandNames(), current)
 	}
 	command := before[0]
-	if command == "runs" && len(before) > 1 && before[1] == "retry" {
-		// cw runs retry: its own flags, after the subcommand word.
-		command, before = "runs retry", append([]string{"runs retry"}, before[2:]...)
-	}
-	if command == "apps" && len(before) > 1 && (before[1] == "update" || before[1] == "update-modules") {
-		// cw apps update / update-modules: their own flags, after the subcommand word.
-		sub := "apps " + before[1]
+	if len(before) > 1 && slices.Contains(subcommands, command+" "+before[1]) {
+		// cw runs retry, cw apps update, cw backups import…: their own flags, after the subcommand word.
+		sub := command + " " + before[1]
 		command, before = sub, append([]string{sub}, before[2:]...)
 	}
 	fs := a.flagsOf(command)
@@ -125,6 +122,8 @@ func (a *App) candidates(words []string) []string {
 		return withPrefix([]string{"retry", "show"}, current)
 	case command == "apps" && len(positional) == 0:
 		return withPrefix([]string{"show", "update", "update-modules"}, current)
+	case command == "backups" && len(positional) == 0:
+		return withPrefix([]string{"import", "show"}, current)
 	case command == "maintenance" && len(positional) == 1:
 		return withPrefix([]string{"on", "off"}, current)
 	case len(positional) == 0:
@@ -165,11 +164,9 @@ func (a *App) flagsOf(command string) *flag.FlagSet {
 		}
 	}
 	name, args := command, []string{"-h"}
-	switch command {
-	case "runs retry":
-		name, args = "runs", []string{"retry", "-h"}
-	case "apps update", "apps update-modules":
-		name, args = "apps", []string{strings.TrimPrefix(command, "apps "), "-h"}
+	if first, sub, ok := strings.Cut(command, " "); ok {
+		// A subcommand (runs retry, apps update, backups import): its word, then -h.
+		name, args = first, []string{sub, "-h"}
 	}
 	quiet.dispatch(name, args)
 	return defined
