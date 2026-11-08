@@ -47,7 +47,9 @@ const importAbout = "Restores a backup file from this computer into the app, rep
 	"filestore), a pg_dump custom dump (.dump) or plain SQL (.sql, .sql.gz): the platform reads which\n" +
 	"from the file's content. Its import goes first and checks the file: when it is not an Odoo\n" +
 	"backup, is damaged or comes from another Odoo version than the app's, the restore does not start\n" +
-	"and the app is not changed. The file stays among the app's backups, marked imported (one from\n" +
+	"and the app is not changed. A staging or development app gets a neutralized copy (outgoing mail,\n" +
+	"scheduled actions and payment providers off), always; a production app gets the data as it is.\n" +
+	"The file stays among the app's backups, marked imported (one from\n" +
 	"another version too). Refused while something runs on the app. It takes two of the token's\n" +
 	"functions: apps.upload and apps.import."
 
@@ -75,11 +77,6 @@ type importJob struct {
 func (a *App) importBackup(args []string) error {
 	fs, opts := a.writeFlagSet("backups import")
 	appRef := fs.String("app", "", "the app to restore it into (id or name)")
-	neutralize := fs.Bool("neutralize", false,
-		"neutralize it as a test copy: outgoing mail, scheduled actions and payment providers off\n"+
-			"(the default for a staging or development app; a production app gets its data as it is)")
-	asItIs := fs.Bool("no-neutralize", false,
-		"restore a staging or development copy as it is, not neutralized (your namespace's admin only)")
 	resetPassword := fs.Bool("reset-admin-password", false,
 		"give its admin user a new password, shown on the restore in the dashboard")
 	update := fs.Bool("update", false, "update the app's modules once the data is in")
@@ -95,9 +92,6 @@ func (a *App) importBackup(args []string) error {
 	}
 	if *appRef == "" {
 		return usagef("name the app to restore it into: cw backups import %s --app <id|name>", positional[0])
-	}
-	if *neutralize && *asItIs {
-		return usagef("--neutralize or --no-neutralize, not both")
 	}
 	if err := jsonOrWait(opts); err != nil {
 		return err
@@ -120,14 +114,11 @@ func (a *App) importBackup(args []string) error {
 	if server == "-" {
 		server = "the app's server"
 	}
-	options := map[string]any{"reset_admin_password": *resetPassword, "update": *update}
-	// Neither flag: the platform neutralizes a staging or development copy, as the dashboard does.
-	if *neutralize || *asItIs {
-		options["neutralize"] = *neutralize
-	}
+	// Not ours to choose: a staging or development copy is always neutralized, production never.
 	return a.runImport(c, importJob{
 		file: file, filename: filename, name: output.Clean(filename), size: size,
-		appID: id, subject: subjectOf(app, "name"), server: server, options: options,
+		appID: id, subject: subjectOf(app, "name"), server: server,
+		options: map[string]any{"reset_admin_password": *resetPassword, "update": *update},
 	}, opts, out)
 }
 
