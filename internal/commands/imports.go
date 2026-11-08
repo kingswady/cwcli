@@ -76,7 +76,10 @@ func (a *App) importBackup(args []string) error {
 	fs, opts := a.writeFlagSet("backups import")
 	appRef := fs.String("app", "", "the app to restore it into (id or name)")
 	neutralize := fs.Bool("neutralize", false,
-		"neutralize it as a test copy: outgoing mail, scheduled actions and payment providers off")
+		"neutralize it as a test copy: outgoing mail, scheduled actions and payment providers off\n"+
+			"(the default for a staging or development app; a production app gets its data as it is)")
+	asItIs := fs.Bool("no-neutralize", false,
+		"restore a staging or development copy as it is, not neutralized (your namespace's admin only)")
 	resetPassword := fs.Bool("reset-admin-password", false,
 		"give its admin user a new password, shown on the restore in the dashboard")
 	update := fs.Bool("update", false, "update the app's modules once the data is in")
@@ -92,6 +95,9 @@ func (a *App) importBackup(args []string) error {
 	}
 	if *appRef == "" {
 		return usagef("name the app to restore it into: cw backups import %s --app <id|name>", positional[0])
+	}
+	if *neutralize && *asItIs {
+		return usagef("--neutralize or --no-neutralize, not both")
 	}
 	if err := jsonOrWait(opts); err != nil {
 		return err
@@ -114,10 +120,14 @@ func (a *App) importBackup(args []string) error {
 	if server == "-" {
 		server = "the app's server"
 	}
+	options := map[string]any{"reset_admin_password": *resetPassword, "update": *update}
+	// Neither flag: the platform neutralizes a staging or development copy, as the dashboard does.
+	if *neutralize || *asItIs {
+		options["neutralize"] = *neutralize
+	}
 	return a.runImport(c, importJob{
 		file: file, filename: filename, name: output.Clean(filename), size: size,
-		appID: id, subject: subjectOf(app, "name"), server: server,
-		options: map[string]any{"neutralize": *neutralize, "reset_admin_password": *resetPassword, "update": *update},
+		appID: id, subject: subjectOf(app, "name"), server: server, options: options,
 	}, opts, out)
 }
 

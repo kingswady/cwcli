@@ -490,6 +490,40 @@ func TestTheProgressIsOneLineInATerminal(t *testing.T) {
 	}
 }
 
+func TestAnImportLeavesNeutralizingToThePlatformUnlessAsked(t *testing.T) {
+	// Neither flag: the platform neutralizes a staging or development copy, as the dashboard does.
+	for _, c := range []struct {
+		flags []string
+		want  map[string]any
+	}{
+		{nil, map[string]any{"upload_id": uploadID, "reset_admin_password": false, "update": false}},
+		{[]string{"--no-neutralize"}, map[string]any{
+			"upload_id": uploadID, "neutralize": false, "reset_admin_password": false, "update": false,
+		}},
+	} {
+		api, _, harnessFor, file := importAPI(t, nil)
+		h := harnessFor(true, "y\n")
+		if code := h.run(append([]string{"backups", "import", file, "--app", "shop"}, c.flags...)...); code != 0 {
+			t.Fatalf("%v: exit %d: %s", c.flags, code, h.stderr)
+		}
+		if imports := api.postsTo("/apps/7/import"); len(imports) != 1 || !reflect.DeepEqual(imports[0].body, c.want) {
+			t.Errorf("%v: imports %+v", c.flags, imports)
+		}
+	}
+}
+
+func TestNeutralizeAndNoNeutralizeTogetherAreRefused(t *testing.T) {
+	_, d, harnessFor, file := importAPI(t, nil)
+	h := harnessFor(true, "y\n")
+	code := h.run("backups", "import", file, "--app", "shop", "--neutralize", "--no-neutralize")
+	if code != 2 || !strings.Contains(h.stderr.String(), "not both") {
+		t.Errorf("exit %d: %s", code, h.stderr)
+	}
+	if got := d.requests(); len(got) != 0 {
+		t.Errorf("nothing is sent: the server saw %q", got)
+	}
+}
+
 func TestImportCompletesAndIsInTheReference(t *testing.T) {
 	h := newHarness(t, nil)
 	for words, want := range map[string][]string{
