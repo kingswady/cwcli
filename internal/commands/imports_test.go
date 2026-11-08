@@ -174,7 +174,7 @@ func (api *writeAPI) postsTo(path string) []post {
 func TestAnImportSendsThePiecesThenRestores(t *testing.T) {
 	api, d, harnessFor, file := importAPI(t, nil)
 	h := harnessFor(true, "y\n")
-	if code := h.run("backups", "import", file, "--app", "shop", "--neutralize"); code != 0 {
+	if code := h.run("backups", "import", file, "--app", "shop"); code != 0 {
 		t.Fatalf("exit %d: %s", code, h.stderr)
 	}
 	question := "Restore acme.zip (25 bytes) into shop (Shop / staging)? Its database is replaced with the one in the file. [y/N]"
@@ -192,7 +192,7 @@ func TestAnImportSendsThePiecesThenRestores(t *testing.T) {
 	if len(uploads) != 1 || !reflect.DeepEqual(uploads[0].body, map[string]any{"filename": "acme.zip", "size": float64(25)}) {
 		t.Errorf("uploads %+v", uploads)
 	}
-	body := map[string]any{"upload_id": uploadID, "neutralize": true, "reset_admin_password": false, "update": false}
+	body := map[string]any{"upload_id": uploadID, "reset_admin_password": false, "update": false}
 	if len(imports) != 1 || !reflect.DeepEqual(imports[0].body, body) {
 		t.Errorf("imports %+v", imports)
 	}
@@ -490,33 +490,12 @@ func TestTheProgressIsOneLineInATerminal(t *testing.T) {
 	}
 }
 
-func TestAnImportLeavesNeutralizingToThePlatformUnlessAsked(t *testing.T) {
-	// Neither flag: the platform neutralizes a staging or development copy, as the dashboard does.
-	for _, c := range []struct {
-		flags []string
-		want  map[string]any
-	}{
-		{nil, map[string]any{"upload_id": uploadID, "reset_admin_password": false, "update": false}},
-		{[]string{"--no-neutralize"}, map[string]any{
-			"upload_id": uploadID, "neutralize": false, "reset_admin_password": false, "update": false,
-		}},
-	} {
-		api, _, harnessFor, file := importAPI(t, nil)
-		h := harnessFor(true, "y\n")
-		if code := h.run(append([]string{"backups", "import", file, "--app", "shop"}, c.flags...)...); code != 0 {
-			t.Fatalf("%v: exit %d: %s", c.flags, code, h.stderr)
-		}
-		if imports := api.postsTo("/apps/7/import"); len(imports) != 1 || !reflect.DeepEqual(imports[0].body, c.want) {
-			t.Errorf("%v: imports %+v", c.flags, imports)
-		}
-	}
-}
-
-func TestNeutralizeAndNoNeutralizeTogetherAreRefused(t *testing.T) {
+func TestNeutralizingIsNotAFlag(t *testing.T) {
+	// The platform decides it from the app's environment: always outside production, never in it.
 	_, d, harnessFor, file := importAPI(t, nil)
 	h := harnessFor(true, "y\n")
-	code := h.run("backups", "import", file, "--app", "shop", "--neutralize", "--no-neutralize")
-	if code != 2 || !strings.Contains(h.stderr.String(), "not both") {
+	code := h.run("backups", "import", file, "--app", "shop", "--neutralize")
+	if code == 0 || !strings.Contains(h.stderr.String(), "not defined: -neutralize") {
 		t.Errorf("exit %d: %s", code, h.stderr)
 	}
 	if got := d.requests(); len(got) != 0 {
@@ -528,7 +507,6 @@ func TestImportCompletesAndIsInTheReference(t *testing.T) {
 	h := newHarness(t, nil)
 	for words, want := range map[string][]string{
 		"backups |":                           {"import", "show"},
-		"backups import acme.zip --ne|":       {"--neutralize"},
 		"backups import acme.zip --res|":      {"--reset-admin-password"},
 		"backups import acme.zip --env |":     {"production", "staging", "development"},
 		"backups import acme.zip --app shop|": nil,

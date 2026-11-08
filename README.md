@@ -227,10 +227,9 @@ From a script — no terminal to ask in — pass `--yes`, or cw refuses (exit 2)
   The file goes in pieces straight to the app's server, its progress shown in the terminal; a dropped
   connection resumes where it stopped, and Ctrl-C stops the upload and removes what got there. Then the
   platform imports it — a file that is not an Odoo backup, is damaged or comes from another Odoo version than
-  the app's stops there, the app unchanged — and restores it. A staging or development copy is neutralized
-  (outgoing mail, scheduled actions and payment providers off) and a production app gets its data as it is, as
-  the dashboard does; `--no-neutralize` keeps a copy as it is (your namespace's admin only).
-  `--reset-admin-password` and `--update` are the restore's other options. With `--wait`, cw follows the
+  the app's stops there, the app unchanged — and restores it. A staging or development app always gets a
+  neutralized copy (outgoing mail, scheduled actions and payment providers off); a production app gets its data
+  as it is. `--reset-admin-password` and `--update` are the restore's options. With `--wait`, cw follows the
   import, then the restore. The file stays among the app's backups, marked imported. The token needs both
   `apps.upload` and `apps.import`, and the server's DownloaderWady 1.1.1 or later.
 
