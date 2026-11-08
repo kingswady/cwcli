@@ -51,35 +51,37 @@ type writeAPI struct {
 func newWriteAPI(t *testing.T, answers map[string][]answer) (*httptest.Server, *writeAPI) {
 	t.Helper()
 	api := &writeAPI{answers: answers, served: map[string]int{}}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		api.mu.Lock()
-		defer api.mu.Unlock()
-		path := strings.TrimPrefix(r.URL.Path, "/api/v1")
-		if r.Method == http.MethodPost {
-			var body map[string]any
-			raw, _ := io.ReadAll(r.Body)
-			json.Unmarshal(raw, &body)
-			api.posts = append(api.posts, post{path: path, key: r.Header.Get("Idempotency-Key"), body: body})
-		}
-		key := r.Method + " " + path
-		list, found := api.answers[key]
-		if !found {
-			w.WriteHeader(http.StatusNotFound)
-			fmt.Fprintf(w, `{"error":{"code":"not_found","message":"No API function at %s"}}`, path)
-			return
-		}
-		turn := min(api.served[key], len(list)-1)
-		api.served[key]++
-		reply := list[turn]
-		for name, value := range reply.headers {
-			w.Header().Set(name, value)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(reply.status)
-		json.NewEncoder(w).Encode(reply.body)
-	}))
+	server := httptest.NewServer(api)
 	t.Cleanup(server.Close)
 	return server, api
+}
+
+func (api *writeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	path := strings.TrimPrefix(r.URL.Path, "/api/v1")
+	if r.Method == http.MethodPost {
+		var body map[string]any
+		raw, _ := io.ReadAll(r.Body)
+		json.Unmarshal(raw, &body)
+		api.posts = append(api.posts, post{path: path, key: r.Header.Get("Idempotency-Key"), body: body})
+	}
+	key := r.Method + " " + path
+	list, found := api.answers[key]
+	if !found {
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprintf(w, `{"error":{"code":"not_found","message":"No API function at %s"}}`, path)
+		return
+	}
+	turn := min(api.served[key], len(list)-1)
+	api.served[key]++
+	reply := list[turn]
+	for name, value := range reply.headers {
+		w.Header().Set(name, value)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(reply.status)
+	json.NewEncoder(w).Encode(reply.body)
 }
 
 var (

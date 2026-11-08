@@ -8,6 +8,7 @@ cmd/cw                    entry point: builds commands.App with the version, run
 └── internal/commands     the command line: dispatch, flags, exit codes, hints — and each command
     ├── mcpbridge         cw mcp: stdio ↔ <platform>/mcp, one JSON-RPC message per line
     ├── selfupdate        cw update: the latest release, its signed checksums.txt checked, swapped in atomically
+    ├── upload            cw backups import: a file in pieces to a server's DownloaderWady, from where its copy ends
     ├── config            the platforms logged in to, the one in use, one token each (keychain or 0600 file)
     ├── output            tables aligned by visible width, colours, JSON, times
     └── platform          the /api/v1 client, and the rule for where a token may be sent
@@ -15,9 +16,10 @@ cmd/cw                    entry point: builds commands.App with the version, run
 
 | Package      | Owns                                                                                     | May import                          |
 | ------------ | ---------------------------------------------------------------------------------------- | ----------------------------------- |
-| `commands`   | every command (`account`, `resources` + `details`, `restorepoints`, `logs`, `attention`, `writes` + `updates`, `completion`, `update`, `mcp`) and `cli.go` | all of the below |
+| `commands`   | every command (`account`, `resources` + `details`, `restorepoints`, `logs`, `attention`, `writes` + `updates` + `imports`, `completion`, `update`, `mcp`) and `cli.go` | all of the below |
 | `mcpbridge`  | `Bridge`: forwards an AI client's messages with the MCP headers the platform checks; runs a change's confirmation for a 2025 client (`confirm.go`) | — |
 | `selfupdate` | `LatestTag`, `Fetch`, `ReplaceExecutable`, `Newer`                                         | `platform`                          |
+| `upload`     | `Target.Status`/`Put`/`Cancel` (no token: the URL's signature is the credential), `Refused`, `NetworkError`, `CheckURL` (https only off this machine), `NewHTTPClient` (no total timeout; a stalled write fails) | `platform` |
 | `config`     | `Config`, `Resolve` (flag → `CW_URL` → saved → default), `SecretStore`                     | `platform`                          |
 | `output`     | `Clean`, `Text`, `LogLine`, `Table`, `WriteTable`, `Colorize`, `Style`, `Ago`, `LocalTime` | —                                   |
 | `platform`   | `Client.Get`/`GetContext`, `APIError`, `NormalizeURL` (never plain http off this machine), no redirects | —                     |
@@ -45,8 +47,15 @@ cmd/cw                    entry point: builds commands.App with the version, run
   `--yes` without a terminal), `postWrite` (one `Idempotency-Key` per command, reused on its own retries of a
   429 or a lost connection: `platform.NetworkError`), `writeError` (a refusal's code and `reason` in words) and
   `waitRun` (`--wait`: the run polled until it ends; exit 1 failed, 4 still going, 130 Ctrl-C).
-  `waitAfterBackup` follows the backup a change takes first (`backup_run_id`), then the change, on one
-  `--timeout`. `commands/updates.go` holds `cw maintenance`, `cw apps update` and `cw apps update-modules`
+  `waitAfterBackup` follows the run that goes first (`backup_run_id`: a backup, or an import), then the change,
+  on one `--timeout`; its words (`firstRun`) name which. `reportWrite` is the second half of `runWrite`, for a
+  command that sends its change itself.
+- **`cw backups import`** — `commands/imports.go`. `apps.upload` signs an upload; `upload.Target` sends the file
+  to the app's server's DownloaderWady in `piece_size` pieces read from disk (`io.SectionReader`), each from
+  where the server's copy ends (GET, or a 409's offset), a piece cut off sent again after a pause
+  (`pieceAttempts`). Progress is one redrawn stderr line in a terminal (`meter`), a line per tenth elsewhere.
+  Ctrl-C or a failure DELETEs the upload (exit 130 / 1). Then `apps.import` through `postWrite`; its answer is
+  a write's, the import run as `backup_run_id`, followed with `importFirst`. `commands/updates.go` holds `cw maintenance`, `cw apps update` and `cw apps update-modules`
   (subcommands of `apps`, as `runs retry` is of `runs`). `cw update` stays cw's own update and nothing else:
   `updateSelf` answers an app named there, or a flag only an app's update takes, with where that went
   (`namesSomething` skips the values of `updateValueFlags`; a test keeps that list whole).

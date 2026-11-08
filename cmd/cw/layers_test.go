@@ -17,7 +17,8 @@ var layers = map[string][]string{
 	"config":     {"platform"},
 	"mcpbridge":  {},
 	"selfupdate": {"platform"},
-	"commands":   {"config", "mcpbridge", "output", "platform", "selfupdate"},
+	"upload":     {"platform"},
+	"commands":   {"config", "mcpbridge", "output", "platform", "selfupdate", "upload"},
 }
 
 const module = "github.com/kingswady/cwcli/internal/"

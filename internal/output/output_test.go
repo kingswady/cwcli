@@ -100,3 +100,21 @@ func TestExpiresSaysHowLongIsLeftOrHowLongAgo(t *testing.T) {
 		}
 	}
 }
+
+func TestBytesSaysASizeAsMegabytesDoes(t *testing.T) {
+	cases := map[int64]string{
+		25:                "25 bytes",
+		512 << 10:         "512.0 KB",
+		432<<20 + 512<<10: "432.5 MB",
+		4509715660:        "4.2 GB",
+		1 << 30:           "1.0 GB",
+	}
+	for in, want := range cases {
+		if got := Bytes(in); got != want {
+			t.Errorf("Bytes(%d) = %q, want %q", in, got, want)
+		}
+	}
+	if Bytes(432<<20+512<<10) != Megabytes(json.Number("432.5")) {
+		t.Error("Bytes and Megabytes say one size two ways")
+	}
+}
