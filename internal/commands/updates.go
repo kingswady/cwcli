@@ -262,9 +262,13 @@ func (a *App) updateModules(args []string) error {
 		return err
 	}
 	s := subjectOf(app, "name")
+	noun := "modules"
+	if len(names) == 1 {
+		noun = "module"
+	}
 	return a.runWrite(c, writeCommand{
 		name:    "cw apps update-modules",
-		action:  fmt.Sprintf("Update the modules %s of %s%s", strings.Join(names, ", "), s.name, backup.first(s)),
+		action:  fmt.Sprintf("Update the %s %s of %s%s", noun, strings.Join(names, ", "), s.name, backup.first(s)),
 		path:    "/apps/" + id + "/update-modules",
 		body:    backup.add(map[string]any{"modules": strings.Join(names, ",")}),
 		subject: s, opts: opts, started: startedLine("Module update of " + s.name),
