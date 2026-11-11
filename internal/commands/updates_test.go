@@ -141,6 +141,17 @@ func TestUpdateFlagMistakesAreRefusedBeforeAnything(t *testing.T) {
 	}
 }
 
+func TestUpdateModulesNamesOneModuleInTheSingular(t *testing.T) {
+	_, harnessFor := updatesAPI(t, "/apps/7/update-modules", started, nil)
+	h := harnessFor(true, "y\n")
+	if code := h.run("apps", "update-modules", "shop", "sale"); code != 0 {
+		t.Fatalf("exit %d: %s", code, h.stderr)
+	}
+	if !strings.Contains(h.stderr.String(), "Update the module sale of shop (Shop / staging)? [y/N]") {
+		t.Errorf("asked %q", h.stderr)
+	}
+}
+
 func TestUpdateModulesNamesTheModules(t *testing.T) {
 	api, harnessFor := updatesAPI(t, "/apps/7/update-modules", started, nil)
 	h := harnessFor(true, "y\n")
