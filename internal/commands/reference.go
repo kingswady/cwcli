@@ -26,12 +26,13 @@ const referenceCommand = "__reference"
 var referenceGroups = []string{"Account", "Read", "Change", "Sign in", "AI agents"}
 
 // subcommands are the commands of two words the help lists.
-var subcommands = []string{"runs retry", "apps update", "apps update-modules", "backups import"}
+var subcommands = []string{"runs retry", "apps update", "apps update-modules", "backups import", "backups check"}
 
 // continuationSummaries name what a help line without a command of its own
 // ("…or some of its modules") stands for, as a sentence of its own.
 var continuationSummaries = map[string]string{
 	"apps update-modules": "Update some of an app's modules",
+	"backups check":       "Ask a backup's server now whether it is done",
 }
 
 var helpColumns = regexp.MustCompile(`\s{2,}`)

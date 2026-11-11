@@ -105,6 +105,7 @@ cw servers
 cw installers --server prod-1
 cw backups --app shop            # OFFSITE: copies on external storage, of those made
 cw backups show bkp_9m2x7k4q8tzn # on the server or not, verified, each off-site copy
+cw backups check bkp_9m2x7k4q8tzn # ask its server now: done (0), still at it (4), failed (1)
 cw runs --app shop --state error
 cw runs show run_4n8x2k7q9mzt    # steps, and why a failed step failed
 ```
@@ -113,6 +114,9 @@ cw runs show run_4n8x2k7q9mzt    # steps, and why a failed step failed
 outside (CHECK: passed, or failed with its reason), and each repository with its branch, the commit the server
 runs (DEPLOYED), the branch's newest one (HEAD) and whether they are the same. An app being upgraded to a new
 Odoo version says so, and which app the upgrade made.
+
+A backup stays running after its steps until its server reports it done; `cw backups check` asks the server now,
+as the dashboard's Check status does (one check a backup every 20 seconds). A script can loop on its exit code.
 
 A run that failed but will be retried automatically shows as `retrying`, not `error`: it has not failed yet.
 

@@ -123,7 +123,7 @@ func (a *App) candidates(words []string) []string {
 	case command == "apps" && len(positional) == 0:
 		return withPrefix([]string{"show", "update", "update-modules"}, current)
 	case command == "backups" && len(positional) == 0:
-		return withPrefix([]string{"import", "show"}, current)
+		return withPrefix([]string{"check", "import", "show"}, current)
 	case command == "maintenance" && len(positional) == 1:
 		return withPrefix([]string{"on", "off"}, current)
 	case len(positional) == 0:

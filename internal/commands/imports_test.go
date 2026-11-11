@@ -506,7 +506,7 @@ func TestNeutralizingIsNotAFlag(t *testing.T) {
 func TestImportCompletesAndIsInTheReference(t *testing.T) {
 	h := newHarness(t, nil)
 	for words, want := range map[string][]string{
-		"backups |":                           {"import", "show"},
+		"backups |":                           {"check", "import", "show"},
 		"backups import acme.zip --res|":      {"--reset-admin-password"},
 		"backups import acme.zip --env |":     {"production", "staging", "development"},
 		"backups import acme.zip --app shop|": nil,
