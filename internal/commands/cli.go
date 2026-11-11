@@ -292,6 +292,9 @@ func (a *App) dispatch(name string, rest []string) int {
 	if name == "backups" && len(rest) > 0 && rest[0] == "import" {
 		return a.exit(a.importBackup(rest[1:]))
 	}
+	if name == "backups" && len(rest) > 0 && rest[0] == "check" {
+		return a.exit(a.checkBackup(rest[1:]))
+	}
 	if res := resourceNamed(name); res != nil {
 		return a.exit(a.resource(res, rest))
 	}
@@ -349,6 +352,7 @@ Read
   servers         List servers               cw servers show <id|name>
   installers      List installed services    cw installers show <id|name>
   backups         List backups               cw backups show <id>: its off-site copies
+                  …ask its server now        cw backups check <id>: done, or still running
   restore-points  An app's changes           cw restore-points <app>: commits, modules, the way back
   runs            List recent runs           cw runs show <id>
   logs            An app's logs              cw logs <app> [--since 1h] [--grep …] [--follow] [--source …]

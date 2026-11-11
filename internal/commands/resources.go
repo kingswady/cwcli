@@ -615,6 +615,12 @@ func (a *App) show(c *platform.Client, res *resource, opts *readFlags, ref strin
 	if err := platform.Decode(raw, &item); err != nil {
 		return err
 	}
+	return a.writeDetails(res, item, out)
+}
+
+// writeDetails prints one record as show does: its details, then what the
+// resource adds (a backup's off-site copies).
+func (a *App) writeDetails(res *resource, item record, out output.Table) error {
 	rows := make([][]string, 0, len(res.details))
 	for _, f := range res.details {
 		if f.hideEmpty && f.empty(item) {
