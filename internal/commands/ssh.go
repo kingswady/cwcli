@@ -22,8 +22,10 @@ import (
 // certificateMargin is how long a kept certificate must still be valid to be used again.
 const certificateMargin = time.Minute
 
-// defaultKeys are tried in this order when --key is not given.
-var defaultKeys = []string{"id_ed25519", "id_ecdsa", "id_rsa"}
+// keyVariable names the private key cw ssh signs in with when --key is not
+// given: keyVariable_<server id> for one server, else keyVariable for every
+// server. cw never guesses a key: someone with several is signed in with the one they named.
+const keyVariable = "CW_SERVER_SSH"
 
 // sshCertificate is the platform's answer, and what cw keeps of it.
 type sshCertificate struct {
@@ -40,7 +42,7 @@ type sshCertificate struct {
 
 func (a *App) ssh(args []string) error {
 	fs := a.newFlags("ssh")
-	keyPath := fs.String("key", "", "your private key (default: the first of ~/.ssh/id_ed25519, id_ecdsa, id_rsa)")
+	keyPath := fs.String("key", "", "your private key (default: $"+keyVariable+"_<server id>, else $"+keyVariable+")")
 	namespace := fs.String("namespace", "", "look the server up in this namespace only")
 	fs.Usage = func() {
 		fmt.Fprint(a.stderr, "Usage: cw ssh <server> [flags] [-- command]\n\n"+
@@ -48,7 +50,9 @@ func (a *App) ssh(args []string) error {
 			"your own key: valid an hour, asked for again once it runs out. Register the key in My Settings\n"+
 			"→ SSH Keys first. It takes a Maintainer or Admin with terminal access to the server, and a\n"+
 			"token with servers.ssh_certificate ticked; the server's sign-in log names you. A key without its\n"+
-			".pub has its public key read by ssh-keygen -y (an encrypted key asks for its passphrase).\n\nFlags:\n")
+			".pub has its public key read by ssh-keygen -y (an encrypted key asks for its passphrase).\n\n"+
+			"The key is --key, else the path in "+keyVariable+"_<server id> (the id cw servers lists, as in\n"+
+			keyVariable+"_srv_7k2m9xq4pzta, or in capitals), else the path in "+keyVariable+".\n\nFlags:\n")
 		fs.PrintDefaults()
 	}
 	own, command := splitCommand(args)
@@ -60,19 +64,19 @@ func (a *App) ssh(args []string) error {
 		fs.Usage()
 		return usagef("name one server: cw ssh <id|name>")
 	}
-	key, public, err := a.sshKey(*keyPath)
-	if err != nil {
-		return err
-	}
-	dir, err := a.sshDir()
-	if err != nil {
-		return err
-	}
 	c, err := a.client()
 	if err != nil {
 		return err
 	}
 	id, err := a.resolveID(c, resourceNamed("servers"), positional[0], scope{namespace: *namespace}, output.Table{})
+	if err != nil {
+		return err
+	}
+	key, public, err := a.sshKey(*keyPath, id)
+	if err != nil {
+		return err
+	}
+	dir, err := a.sshDir()
 	if err != nil {
 		return err
 	}
@@ -93,36 +97,33 @@ func splitCommand(args []string) (own, command []string) {
 	return args, nil
 }
 
-// sshKey is the private key and its public line: --key, else the first default
-// key with a .pub beside it. A key without its .pub (copied over, restored from
-// a password manager, provisioned in CI) has its public line derived by
-// ssh-keygen; in the default search only the first key there is, so an
-// encrypted one asks for its passphrase once.
-func (a *App) sshKey(path string) (key, public string, err error) {
-	if path != "" {
-		key = a.expandHome(path)
-		public, err = a.publicKey(key)
-		return key, public, err
+// sshKey is the private key and its public line, for server id: the key
+// keyPath names, its public line from the .pub beside it or from ssh-keygen.
+func (a *App) sshKey(flagPath, id string) (key, public string, err error) {
+	path, from := a.keyPath(flagPath, id)
+	if path == "" {
+		return "", "", fmt.Errorf("no SSH key named for %s: set %s_%s (this server) or %s (every server) "+
+			"to your private key's path, or pass --key", id, keyVariable, id, keyVariable)
 	}
-	home := a.getenv("HOME")
-	if home == "" {
-		return "", "", errors.New("no HOME to look for ~/.ssh in: name the key with --key")
+	key = a.expandHome(path)
+	if public, err = a.publicKey(key); err != nil {
+		return "", "", fmt.Errorf("%s: %w", from, err)
 	}
-	first := ""
-	for _, name := range defaultKeys {
-		candidate := filepath.Join(home, ".ssh", name)
-		if line, readErr := os.ReadFile(candidate + ".pub"); readErr == nil {
-			return candidate, strings.TrimSpace(string(line)), nil
+	return key, public, nil
+}
+
+// keyPath is the key's path and what named it: --key, else the server's own
+// variable (its id as cw lists it, or in capitals), else the one for every server.
+func (a *App) keyPath(flagPath, id string) (path, from string) {
+	if flagPath != "" {
+		return flagPath, "--key"
+	}
+	for _, name := range []string{keyVariable + "_" + id, keyVariable + "_" + strings.ToUpper(id), keyVariable} {
+		if value := a.getenv(name); value != "" {
+			return value, name
 		}
-		if _, statErr := os.Stat(candidate); first == "" && statErr == nil {
-			first = candidate
-		}
 	}
-	if first == "" {
-		return "", "", errors.New("no SSH key in ~/.ssh (id_ed25519, id_ecdsa or id_rsa): name one with --key")
-	}
-	public, err = a.publicKey(first)
-	return first, public, err
+	return "", ""
 }
 
 // publicKey is key's public line: its .pub, else what ssh-keygen -y reads from

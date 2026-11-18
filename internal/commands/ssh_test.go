@@ -57,6 +57,7 @@ func sshHarness(t *testing.T, server *httptest.Server) (*harness, *[]string) {
 	if err := os.WriteFile(filepath.Join(home, ".ssh", "id_ed25519.pub"), []byte(publicKey+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	h.env["CW_SERVER_SSH"] = filepath.Join(home, ".ssh", "id_ed25519")
 	var ran []string
 	h.app.sshRunner = func(args []string) error {
 		ran = args
@@ -146,53 +147,94 @@ func TestSSHDerivesThePublicKeyWhenThePubIsMissing(t *testing.T) {
 	}
 }
 
-// In the default search only the first key there is is derived: an encrypted
-// key asks for its passphrase once, not once per candidate.
-func TestSSHDerivesOnlyTheFirstDefaultKey(t *testing.T) {
+// A server's own variable names its key before the one for every server; --key before both.
+func TestSSHKeyIsNamedNeverGuessed(t *testing.T) {
+	const id = "srv_7k2m9xq4pzta"
+	cases := []struct {
+		name, flag string
+		env        map[string]string
+		path, from string
+	}{
+		{"nothing named", "", nil, "", ""},
+		{"every server", "", map[string]string{"CW_SERVER_SSH": "~/.ssh/all"}, "~/.ssh/all", "CW_SERVER_SSH"},
+		{"this server", "", map[string]string{
+			"CW_SERVER_SSH": "~/.ssh/all", "CW_SERVER_SSH_" + id: "~/.ssh/one",
+		}, "~/.ssh/one", "CW_SERVER_SSH_" + id},
+		{"this server in capitals", "", map[string]string{
+			"CW_SERVER_SSH": "~/.ssh/all", "CW_SERVER_SSH_SRV_7K2M9XQ4PZTA": "~/.ssh/one",
+		}, "~/.ssh/one", "CW_SERVER_SSH_SRV_7K2M9XQ4PZTA"},
+		{"another server's", "", map[string]string{"CW_SERVER_SSH_srv_aaaaaaaaaaaa": "~/.ssh/other"}, "", ""},
+		{"--key first", "~/.ssh/flag", map[string]string{
+			"CW_SERVER_SSH": "~/.ssh/all", "CW_SERVER_SSH_" + id: "~/.ssh/one",
+		}, "~/.ssh/flag", "--key"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t, nil)
+			for key, value := range tc.env {
+				h.env[key] = value
+			}
+			if path, from := h.app.keyPath(tc.flag, id); path != tc.path || from != tc.from {
+				t.Errorf("got %q from %q, want %q from %q", path, from, tc.path, tc.from)
+			}
+		})
+	}
+}
+
+func TestSSHSignsInWithTheServersOwnKey(t *testing.T) {
 	calls := 0
 	server := sshPlatform(t, time.Now().UTC().Add(time.Hour).Format("2006-01-02 15:04:05"), &calls)
 	h, ran := sshHarness(t, server)
-	ssh := filepath.Join(h.env["HOME"], ".ssh")
-	os.Remove(filepath.Join(ssh, "id_ed25519.pub"))
-	for _, name := range []string{"id_ecdsa", "id_rsa"} {
-		if err := os.WriteFile(filepath.Join(ssh, name), []byte("PRIVATE"), 0o600); err != nil {
-			t.Fatal(err)
-		}
+	work := filepath.Join(h.env["HOME"], ".ssh", "work")
+	if err := os.WriteFile(work+".pub", []byte(publicKey+"\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	var derived []string
-	h.app.keygenRunner = func(path string) (string, error) {
-		derived = append(derived, path)
-		return publicKey, nil
-	}
+	h.env["CW_SERVER_SSH_41"] = work
 	if code := h.run("ssh", "41"); code != 0 {
 		t.Fatalf("exit %d: %s", code, h.stderr)
 	}
-	first := filepath.Join(ssh, "id_ecdsa")
-	if len(derived) != 1 || derived[0] != first || (*ran)[1] != first {
-		t.Errorf("derived %v, ssh %v", derived, *ran)
+	if (*ran)[1] != work {
+		t.Errorf("ssh %v: the server's own key comes before CW_SERVER_SSH", *ran)
 	}
 }
 
-// Only when both ways fail does cw stop, and it names both.
+// Only when both ways fail does cw stop, and it names both, and what named the key.
 func TestSSHNamesBothWaysWhenNoPublicKeyCanBeHad(t *testing.T) {
-	h, _ := sshHarness(t, nil)
-	key := filepath.Join(h.env["HOME"], ".ssh", "mykey")
-	h.app.keygenRunner = func(string) (string, error) { return "", errors.New("incorrect passphrase") }
-	if code := h.run("ssh", "41", "--key", key); code != 1 {
-		t.Fatalf("exit %d", code)
-	}
-	for _, want := range []string{"no mykey.pub", "ssh-keygen -y could not read the key (incorrect passphrase)"} {
-		if !strings.Contains(h.stderr.String(), want) {
-			t.Errorf("want %q in %q", want, h.stderr)
-		}
+	for _, named := range []string{"--key", "CW_SERVER_SSH_41"} {
+		t.Run(named, func(t *testing.T) {
+			calls := 0
+			h, _ := sshHarness(t, sshPlatform(t, "", &calls))
+			key := filepath.Join(h.env["HOME"], ".ssh", "mykey")
+			h.app.keygenRunner = func(string) (string, error) { return "", errors.New("incorrect passphrase") }
+			args := []string{"ssh", "41"}
+			if named == "--key" {
+				args = append(args, "--key", key)
+			} else {
+				h.env[named] = key
+			}
+			if code := h.run(args...); code != 1 || calls != 0 {
+				t.Fatalf("exit %d, %d requests", code, calls)
+			}
+			for _, want := range []string{named + ": no public key", "no mykey.pub", "ssh-keygen -y could not read the key (incorrect passphrase)"} {
+				if !strings.Contains(h.stderr.String(), want) {
+					t.Errorf("want %q in %q", want, h.stderr)
+				}
+			}
+		})
 	}
 }
 
+// A key in ~/.ssh is not taken unless a variable or --key names it.
 func TestSSHNeedsAKeyAndOneServer(t *testing.T) {
-	h := newHarness(t, nil)
-	h.env["HOME"] = t.TempDir()
-	if code := h.run("ssh", "41"); code != 1 || !strings.Contains(h.stderr.String(), "no SSH key in ~/.ssh") {
-		t.Errorf("exit %d: %s", code, h.stderr)
+	calls := 0
+	h, _ := sshHarness(t, sshPlatform(t, "", &calls))
+	delete(h.env, "CW_SERVER_SSH")
+	if err := os.WriteFile(filepath.Join(h.env["HOME"], ".ssh", "id_ed25519"), []byte("PRIVATE"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	want := "no SSH key named for 41: set CW_SERVER_SSH_41 (this server) or CW_SERVER_SSH (every server)"
+	if code := h.run("ssh", "41"); code != 1 || calls != 0 || !strings.Contains(h.stderr.String(), want) {
+		t.Errorf("exit %d, %d requests: %s", code, calls, h.stderr)
 	}
 	h = newHarness(t, nil)
 	if code := h.run("ssh"); code != 2 {
