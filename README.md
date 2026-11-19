@@ -250,6 +250,24 @@ default, and a token that can make changes lives at most 30 days). What a change
 level in that environment, as in the dashboard. Platforms open changes through the API to their customers
 separately from reading; until then cw says they are not open to your account.
 
+## Sign in to a server
+
+```bash
+cw ssh web-1                     # the server's shell, as odoo
+cw ssh web-1 -u root             # root
+cw ssh web-1 -u root -- df -h    # a command, as root
+```
+
+`cw ssh` signs in from this machine with a certificate the platform signs for your own key, registered in
+My Settings → SSH Keys. By default it opens the server's shell as odoo, the dashboard's server shell; that takes
+terminal access to the server. `-u root` asks for root, which takes an operator or an Admin of the namespace
+that owns the server's cloud provider. A command after `--` needs `-u root`: the odoo shell opens a shell only.
+A certificate lasts as long as the server's setting says (15 minutes by default); cw keeps it per server and
+account and asks again once it runs out.
+
+The key is `--key`, else the path in `CW_SERVER_SSH_<server id>` (the id `cw servers` lists), else the path in
+`CW_SERVER_SSH`. The token needs `servers.ssh_certificate` ticked.
+
 ## AI agents (MCP)
 
 `cw mcp` serves the platform's tools to an AI client over stdio, with the token you logged in with:

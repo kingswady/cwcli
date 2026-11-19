@@ -368,7 +368,7 @@ Change (asks first; --yes from a script; the token needs the function ticked)
   (an update backs a production app up first: --no-backup skips it, --backup asks for it elsewhere)
 
 Sign in
-  ssh             Root on a server, as you   cw ssh <server> [-- command]: an hour, for your own key
+  ssh             A server's shell, as you   cw ssh <server> [-u root] [-- command]: odoo; root on request
 
 AI agents
   mcp             Serve the platform's tools to an AI client (stdio): claude mcp add -s user cloudwady -- cw mcp

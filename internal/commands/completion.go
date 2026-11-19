@@ -84,6 +84,8 @@ var flagValues = map[string][]string{
 	// cw apps update and cw apps update-modules
 	"modules":       {"changed", "configured", "none"},
 	"backup-format": {"zip", "dump"},
+	// cw ssh -u
+	"u": {"odoo", "root"},
 }
 
 func (a *App) candidates(words []string) []string {
@@ -112,7 +114,7 @@ func (a *App) candidates(words []string) []string {
 	}
 	if strings.HasPrefix(current, "-") {
 		var names []string
-		fs.VisitAll(func(f *flag.Flag) { names = append(names, "--"+f.Name) })
+		fs.VisitAll(func(f *flag.Flag) { names = append(names, flagWord(f.Name)) })
 		return withPrefix(names, current)
 	}
 	switch positional := positionals(fs, before[1:]); {
@@ -204,6 +206,14 @@ func positionals(fs *flag.FlagSet, words []string) []string {
 		}
 	}
 	return found
+}
+
+// flagWord is how a flag is typed: one dash for a letter (cw ssh -u), two otherwise.
+func flagWord(name string) string {
+	if len(name) == 1 {
+		return "-" + name
+	}
+	return "--" + name
 }
 
 func isBoolFlag(f *flag.Flag) bool {

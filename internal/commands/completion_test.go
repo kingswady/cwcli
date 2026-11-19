@@ -34,6 +34,8 @@ func TestTabCompletesCommandsFlagsAndValues(t *testing.T) {
 		{[]string{"restore-points", "shop", "--pro"}, "--project"},
 		{[]string{"completion", ""}, "zsh"},
 		{[]string{"attention", "--"}, "--json"},
+		{[]string{"ssh", "web-1", "-"}, "-u"},
+		{[]string{"ssh", "web-1", "-u", "r"}, "root"},
 	}
 	for _, c := range cases {
 		got := complete(t, c.words...)
