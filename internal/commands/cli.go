@@ -60,7 +60,7 @@ type App struct {
 	// flagsDefined, when set, is handed each flag set a command defines
 	// (completion reads a command's flags this way).
 	flagsDefined func(*flag.FlagSet)
-	// sshRunner, when set, runs cw ssh's ssh instead of the real one (tests).
+	// sshRunner, when set, runs the ssh of cw ssh and cw apps shell instead of the real one (tests).
 	sshRunner func(args []string) error
 	// keygenRunner, when set, derives a public key instead of ssh-keygen (tests).
 	keygenRunner func(key string) (string, error)
@@ -289,6 +289,9 @@ func (a *App) dispatch(name string, rest []string) int {
 	if name == "apps" && len(rest) > 0 && rest[0] == "update-modules" {
 		return a.exit(a.updateModules(rest[1:]))
 	}
+	if name == "apps" && len(rest) > 0 && rest[0] == "shell" {
+		return a.exit(a.appShell(rest[1:]))
+	}
 	if name == "backups" && len(rest) > 0 && rest[0] == "import" {
 		return a.exit(a.importBackup(rest[1:]))
 	}
@@ -369,6 +372,7 @@ Change (asks first; --yes from a script; the token needs the function ticked)
 
 Sign in
   ssh             A server's shell, as you   cw ssh <server> [-u root] [-- command]: odoo; root on request
+  apps shell      An app's shell, as you     cw apps shell <app> [--odoo]: bash in its container, or the odoo shell
 
 AI agents
   mcp             Serve the platform's tools to an AI client (stdio): claude mcp add -s user cloudwady -- cw mcp

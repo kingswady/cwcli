@@ -268,6 +268,19 @@ account and asks again once it runs out.
 The key is `--key`, else the path in `CW_SERVER_SSH_<server id>` (the id `cw servers` lists), else the path in
 `CW_SERVER_SSH`. The token needs `servers.ssh_certificate` ticked.
 
+### An app's shell
+
+```bash
+cw apps shell shop               # bash in the app's container
+cw apps shell shop --odoo        # the odoo shell on its database
+```
+
+`cw apps shell` opens what the dashboard's app shell opens, from this machine, with a certificate signed the
+same way for your own key. It takes Developer Plus outside production, Maintainer or Admin on production. The
+certificate opens that shell only, so a command after `--` is refused. cw keeps it per app and mode for as
+long as the app's server's setting says. The key is picked as for `cw ssh`, by the id of the app's server. The
+token needs `apps.get` and `apps.shell_certificate` ticked.
+
 ## AI agents (MCP)
 
 `cw mcp` serves the platform's tools to an AI client over stdio, with the token you logged in with:

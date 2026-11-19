@@ -93,13 +93,13 @@ func sshHarness(t *testing.T, server *httptest.Server) (*harness, *[]string) {
 
 func inAnHour() string { return time.Now().UTC().Add(time.Hour).Format("2006-01-02 15:04:05") }
 
-// The files cw keeps for server 41 and account, 0600, with what they hold.
-func checkKeptFiles(t *testing.T, dir, account, login string) {
+// The files cw keeps under the name kept ("41-odoo"), 0600, with what they hold.
+func checkKeptFiles(t *testing.T, dir, kept, login string) {
 	t.Helper()
 	for name, content := range map[string]string{
-		"41-" + account + "-cert.pub":    "ssh-ed25519-cert-v01@openssh.com AAAACERT " + login + "#cli-7\n",
-		"41-" + account + "-known_hosts": "[192.0.2.9]:2222 ssh-ed25519 AAAAHOST\n",
-		"41-" + account + ".json":        "",
+		kept + "-cert.pub":    "ssh-ed25519-cert-v01@openssh.com AAAACERT " + login + "#cli-7\n",
+		kept + "-known_hosts": "[192.0.2.9]:2222 ssh-ed25519 AAAAHOST\n",
+		kept + ".json":        "",
 	} {
 		path := filepath.Join(dir, name)
 		raw, err := os.ReadFile(path)
@@ -136,7 +136,7 @@ func TestSSHOpensTheOdooShellByDefault(t *testing.T) {
 	if got, want := strings.Join(*ran, " "), sshCommandLine(h, "odoo", "appshell"); got != want {
 		t.Errorf("ssh\n got %s\nwant %s", got, want)
 	}
-	checkKeptFiles(t, filepath.Join(h.app.configDir, "ssh"), "odoo", "appshell")
+	checkKeptFiles(t, filepath.Join(h.app.configDir, "ssh"), "41-odoo", "appshell")
 	if !strings.Contains(h.stderr.String(), "cw: certificate 7 for odoo on 41, valid until ") {
 		t.Errorf("stderr %q", h.stderr)
 	}
@@ -158,7 +158,7 @@ func TestSSHSignsInToRootOnRequest(t *testing.T) {
 	if got, want := strings.Join(*ran, " "), sshCommandLine(h, "root", "root", "uptime", "-p"); got != want {
 		t.Errorf("ssh\n got %s\nwant %s", got, want)
 	}
-	checkKeptFiles(t, filepath.Join(h.app.configDir, "ssh"), "root", "root")
+	checkKeptFiles(t, filepath.Join(h.app.configDir, "ssh"), "41-root", "root")
 	// The account is the answer's, the server as typed.
 	if !strings.Contains(h.stderr.String(), "cw: certificate 7 for root on web-1, valid until ") {
 		t.Errorf("stderr %q", h.stderr)
@@ -295,7 +295,7 @@ func TestSSHSaysWhatTheAccountTakesWhenRefused(t *testing.T) {
 
 // A 400 carries its reason: printed as it comes, no hint.
 func TestSSHPrintsTheReasonOfABadRequest(t *testing.T) {
-	reason := "web-1 does not take certificates yet: Apply Hardening sets it up."
+	reason := "web-1 does not take certificates yet: Harden Server sets it up."
 	h, ran := sshHarness(t, sshRefusing(t, http.StatusBadRequest, "invalid_request", reason))
 	if code := h.run("ssh", "41"); code != 2 || *ran != nil {
 		t.Fatalf("exit %d, ssh %v: %s", code, *ran, h.stderr)

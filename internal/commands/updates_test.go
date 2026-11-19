@@ -320,7 +320,7 @@ func TestUpdateCommandsComplete(t *testing.T) {
 	h := newHarness(t, nil)
 	for words, want := range map[string][]string{
 		"maintenance shop |":             {"on", "off"},
-		"apps |":                         {"show", "update", "update-modules"},
+		"apps |":                         {"shell", "show", "update", "update-modules"},
 		"apps update shop --qu|":         {"--quick"},
 		"update --che|":                  {"--check"},
 		"apps update shop --modules |":   {"changed", "configured", "none"},

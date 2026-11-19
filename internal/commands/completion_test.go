@@ -36,6 +36,9 @@ func TestTabCompletesCommandsFlagsAndValues(t *testing.T) {
 		{[]string{"attention", "--"}, "--json"},
 		{[]string{"ssh", "web-1", "-"}, "-u"},
 		{[]string{"ssh", "web-1", "-u", "r"}, "root"},
+		{[]string{"apps", "she"}, "shell"},
+		{[]string{"apps", "shell", "shop", "--o"}, "--odoo"},
+		{[]string{"apps", "shell", "shop", "--n"}, "--namespace"},
 	}
 	for _, c := range cases {
 		got := complete(t, c.words...)
@@ -50,10 +53,10 @@ func TestTabOffersOnlyWhatFits(t *testing.T) {
 		words []string
 		want  string
 	}{
-		{[]string{"apps", "show", ""}, ""},                                     // the name is the platform's: nothing offline
-		{[]string{"urls", ""}, ""},                                             // urls has no show
-		{[]string{"apps", "--json", "sh"}, "show"},                             // --json takes no value
-		{[]string{"apps", "--project", "x", ""}, "show update update-modules"}, // --project does
+		{[]string{"apps", "show", ""}, ""},                                           // the name is the platform's: nothing offline
+		{[]string{"urls", ""}, ""},                                                   // urls has no show
+		{[]string{"apps", "--json", "sh"}, "shell show"},                             // --json takes no value
+		{[]string{"apps", "--project", "x", ""}, "shell show update update-modules"}, // --project does
 		{[]string{"nope", "--"}, ""},
 	}
 	for _, c := range cases {

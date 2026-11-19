@@ -1,9 +1,11 @@
 package commands
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
 	"os/exec"
@@ -54,10 +56,15 @@ type sshCertificate struct {
 	ValidBefore string      `json:"valid_before"`
 	Host        string      `json:"host"`
 	Port        json.Number `json:"port"`
-	// User is the login ssh signs in to (appshell for odoo, root); Account is what it opens: odoo or root.
+	// User is the login ssh signs in to (appshell, root); Account is what it
+	// opens: odoo or root from cw ssh, app from cw apps shell.
 	User       string   `json:"user"`
 	Account    string   `json:"account"`
 	KnownHosts []string `json:"known_hosts"`
+	// Mode is the app shell's (shell or odoo); App and Server name the app and its server.
+	Mode   string    `json:"mode,omitempty"`
+	App    string    `json:"app,omitempty"`
+	Server recordRef `json:"server,omitempty"`
 	// PublicKey is the key it was signed for, so another --key asks again.
 	PublicKey string `json:"public_key,omitempty"`
 }
@@ -65,9 +72,26 @@ type sshCertificate struct {
 // sshServer is what cw ssh signs in to: the server's id, the server as typed, and the account.
 type sshServer struct{ id, typed, account string }
 
-// keptPath is a file cw keeps for this server and account: suffix "-cert.pub", "-known_hosts" or ".json".
-func (s sshServer) keptPath(dir, suffix string) string {
-	return filepath.Join(dir, s.id+"-"+s.account+suffix)
+// kept names the files cw keeps for this server and account.
+func (s sshServer) kept() string { return s.id + "-" + s.account }
+
+// keptPath is a file cw keeps for one certificate, kept naming it ("41-odoo",
+// "app-12-shell"): suffix "-cert.pub", "-known_hosts" or ".json".
+func keptPath(dir, kept, suffix string) string {
+	return filepath.Join(dir, kept+suffix)
+}
+
+// certificateRequest is one certificate cw asks the platform for: cw ssh's for
+// a server and account, cw apps shell's for an app and mode.
+type certificateRequest struct {
+	command string         // "cw ssh", as a refusal names it
+	kept    string         // the name of the files cw keeps it in
+	path    string         // where it is asked for
+	body    map[string]any // what is asked besides the public key
+	hint    string         // the line a 403 access_denied adds: what the certificate takes
+	// signed refuses an answer that is not what was asked (an older platform
+	// signs something else) and says what it opens: "for odoo on web-1".
+	signed func(sshCertificate) (string, error)
 }
 
 func (a *App) ssh(args []string) error {
@@ -126,7 +150,7 @@ func (a *App) ssh(args []string) error {
 	if err != nil {
 		return err
 	}
-	return a.runSSH(sshArgs(key, dir, server, certificate, command))
+	return a.runSSH(sshArgs(key, dir, server.kept(), certificate, command))
 }
 
 // splitCommand parts cw's own arguments from the command after "--", which is ssh's.
@@ -222,39 +246,54 @@ func (a *App) sshDir() (string, error) {
 	return dir, os.Chmod(dir, 0o700)
 }
 
-// serverCertificate is the kept certificate while it holds for this key and
-// account, else a new one from the platform.
+// serverCertificate is cw ssh's certificate for the server and account.
 func (a *App) serverCertificate(c *platform.Client, server sshServer, public, dir string) (sshCertificate, error) {
-	metaPath := server.keptPath(dir, ".json")
+	return a.certificate(c, certificateRequest{
+		command: "cw ssh",
+		kept:    server.kept(),
+		path:    "/servers/" + server.id + "/ssh-certificate",
+		body:    map[string]any{"user": server.account},
+		hint:    accessHints[server.account],
+		signed: func(fresh sshCertificate) (string, error) {
+			// A platform from before accounts takes no user and signs root.
+			if signed := cmp.Or(fresh.Account, rootAccount); signed != server.account {
+				return "", fmt.Errorf("%s signed a certificate for %s, not %s — it needs a newer platform version; cw did not sign in",
+					c.Base, signed, server.account)
+			}
+			return "for " + server.account + " on " + server.typed, nil
+		},
+	}, public, dir)
+}
+
+// certificate is the kept certificate while it holds for this key, else a new
+// one from the platform, kept once it is what was asked.
+func (a *App) certificate(c *platform.Client, req certificateRequest, public, dir string) (sshCertificate, error) {
+	metaPath := keptPath(dir, req.kept, ".json")
 	var kept sshCertificate
 	if raw, err := os.ReadFile(metaPath); err == nil && json.Unmarshal(raw, &kept) == nil {
 		if sameKey(kept.PublicKey, public) && a.clock().Add(certificateMargin).Before(validUntil(kept.ValidBefore)) {
 			return kept, nil
 		}
 	}
-	body := map[string]any{"public_key": public, "user": server.account}
-	raw, _, err := a.postWrite(c, "/servers/"+server.id+"/ssh-certificate", body)
+	body := map[string]any{"public_key": public}
+	maps.Copy(body, req.body)
+	raw, _, err := a.postWrite(c, req.path, body)
 	if err != nil {
-		return sshCertificate{}, certificateError(c, server.account, err)
+		return sshCertificate{}, certificateError(c, req, err)
 	}
 	var fresh sshCertificate
 	if err := platform.Decode(raw, &fresh); err != nil {
 		return sshCertificate{}, err
 	}
-	if fresh.Account == "" {
-		// A platform from before accounts takes no user and signs root.
-		fresh.Account = rootAccount
-	}
-	if fresh.Account != server.account {
-		return sshCertificate{}, fmt.Errorf("%s signed a certificate for %s, not %s — it needs a newer platform version; cw did not sign in",
-			c.Base, fresh.Account, server.account)
+	what, err := req.signed(fresh)
+	if err != nil {
+		return sshCertificate{}, err
 	}
 	fresh.PublicKey = public
-	fmt.Fprintf(a.stderr, "cw: certificate %s for %s on %s, valid until %s UTC\n",
-		fresh.Serial, fresh.Account, server.typed, output.Clean(fresh.ValidBefore))
+	fmt.Fprintf(a.stderr, "cw: certificate %s %s, valid until %s UTC\n", fresh.Serial, what, output.Clean(fresh.ValidBefore))
 	files := map[string]string{
-		server.keptPath(dir, "-cert.pub"):    fresh.Certificate + "\n",
-		server.keptPath(dir, "-known_hosts"): strings.Join(fresh.KnownHosts, "\n") + "\n",
+		keptPath(dir, req.kept, "-cert.pub"):    fresh.Certificate + "\n",
+		keptPath(dir, req.kept, "-known_hosts"): strings.Join(fresh.KnownHosts, "\n") + "\n",
 	}
 	for path, content := range files {
 		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
@@ -269,14 +308,14 @@ func (a *App) serverCertificate(c *platform.Client, server sshServer, public, di
 }
 
 // certificateError is a refused certificate, said as cw says a refused change,
-// except that a 403 access_denied gets the account's hint on a line of its own
-// (a 400 says its reason itself: Apply Hardening sets the server up).
-func certificateError(c *platform.Client, account string, err error) error {
+// except that a 403 access_denied gets the request's hint on a line of its own
+// (a 400 says its reason itself: Harden Server sets the server up).
+func certificateError(c *platform.Client, req certificateRequest, err error) error {
 	var refused *platform.APIError
 	if errors.As(err, &refused) && refused.Status == http.StatusForbidden && refused.Code == "access_denied" {
-		return fmt.Errorf("%w\n%s", err, accessHints[account])
+		return fmt.Errorf("%w\n%s", err, req.hint)
 	}
-	return writeError(c, "cw ssh", err)
+	return writeError(c, req.command, err)
 }
 
 func sameKey(a, b string) bool {
@@ -294,8 +333,9 @@ func validUntil(value string) time.Time {
 	return time.Time{}
 }
 
-// sshArgs is ssh's command line: the key and its certificate, the platform's pin of the host key.
-func sshArgs(key, dir string, server sshServer, certificate sshCertificate, command []string) []string {
+// sshArgs is ssh's command line: the key and its certificate (kept names their
+// files), the platform's pin of the host key.
+func sshArgs(key, dir, kept string, certificate sshCertificate, command []string) []string {
 	checking := "StrictHostKeyChecking=yes"
 	if len(certificate.KnownHosts) == 0 {
 		// The platform has no pin yet: the first sign-in pins it in cw's own file.
@@ -303,9 +343,9 @@ func sshArgs(key, dir string, server sshServer, certificate sshCertificate, comm
 	}
 	args := []string{
 		"-i", key,
-		"-o", "CertificateFile=" + optionPath(server.keptPath(dir, "-cert.pub")),
+		"-o", "CertificateFile=" + optionPath(keptPath(dir, kept, "-cert.pub")),
 		"-o", "IdentitiesOnly=yes",
-		"-o", "UserKnownHostsFile=" + optionPath(server.keptPath(dir, "-known_hosts")),
+		"-o", "UserKnownHostsFile=" + optionPath(keptPath(dir, kept, "-known_hosts")),
 		"-o", checking,
 	}
 	if port := certificate.Port.String(); port != "" && port != "22" {
