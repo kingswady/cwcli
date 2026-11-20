@@ -17,7 +17,7 @@ import (
 	"github.com/kingswady/cwcli/internal/platform"
 )
 
-// cw ssh signs in to a server with a certificate the platform signs for one of
+// cw servers ssh signs in to a server with a certificate the platform signs for one of
 // the person's own registered keys: as odoo by default (the login appshell,
 // forced into the dashboard's server shell), as root with -u root. It lasts the
 // server's setting, is kept per server and account beside the server's pinned
@@ -28,7 +28,7 @@ import (
 // certificateMargin is how long a kept certificate must still be valid to be used again.
 const certificateMargin = time.Minute
 
-// keyVariable names the private key cw ssh signs in with when --key is not
+// keyVariable names the private key cw servers ssh signs in with when --key is not
 // given: keyVariable_<server id> for one server, else keyVariable for every
 // server. cw never guesses a key: someone with several is signed in with the one they named.
 const keyVariable = "CW_SERVER_SSH"
@@ -57,7 +57,7 @@ type sshCertificate struct {
 	Host        string      `json:"host"`
 	Port        json.Number `json:"port"`
 	// User is the login ssh signs in to (appshell, root); Account is what it
-	// opens: odoo or root from cw ssh, app from cw apps shell.
+	// opens: odoo or root from cw servers ssh, app from cw apps ssh.
 	User       string   `json:"user"`
 	Account    string   `json:"account"`
 	KnownHosts []string `json:"known_hosts"`
@@ -69,7 +69,7 @@ type sshCertificate struct {
 	PublicKey string `json:"public_key,omitempty"`
 }
 
-// sshServer is what cw ssh signs in to: the server's id, the server as typed, and the account.
+// sshServer is what cw servers ssh signs in to: the server's id, the server as typed, and the account.
 type sshServer struct{ id, typed, account string }
 
 // kept names the files cw keeps for this server and account.
@@ -81,10 +81,10 @@ func keptPath(dir, kept, suffix string) string {
 	return filepath.Join(dir, kept+suffix)
 }
 
-// certificateRequest is one certificate cw asks the platform for: cw ssh's for
-// a server and account, cw apps shell's for an app and mode.
+// certificateRequest is one certificate cw asks the platform for: cw servers ssh's for
+// a server and account, cw apps ssh's for an app and mode.
 type certificateRequest struct {
-	command string         // "cw ssh", as a refusal names it
+	command string         // "cw servers ssh", as a refusal names it
 	kept    string         // the name of the files cw keeps it in
 	path    string         // where it is asked for
 	body    map[string]any // what is asked besides the public key
@@ -95,12 +95,12 @@ type certificateRequest struct {
 }
 
 func (a *App) ssh(args []string) error {
-	fs := a.newFlags("ssh")
+	fs := a.newFlags("servers ssh")
 	account := fs.String("u", odooAccount, "the account: odoo (the server's shell) or root")
 	keyPath := fs.String("key", "", "your private key (default: $"+keyVariable+"_<server id>, else $"+keyVariable+")")
 	namespace := fs.String("namespace", "", "look the server up in this namespace only")
 	fs.Usage = func() {
-		fmt.Fprint(a.stderr, "Usage: cw ssh <server> [-u odoo|root] [--key path] [--namespace code] [-- command]\n\n"+
+		fmt.Fprint(a.stderr, "Usage: cw servers ssh <server> [-u odoo|root] [--key path] [--namespace code] [-- command]\n\n"+
 			"Opens the server's shell as odoo from this machine (the dashboard's server shell), with a\n"+
 			"certificate the platform signs for your own key; it takes terminal access to the server.\n"+
 			"-u root signs in to root instead, which takes an operator or an Admin of the namespace that owns\n"+
@@ -124,7 +124,7 @@ func (a *App) ssh(args []string) error {
 	}
 	if len(positional) != 1 {
 		fs.Usage()
-		return usagef("name one server: cw ssh <id|name>")
+		return usagef("name one server: cw servers ssh <id|name>")
 	}
 	if len(command) > 0 && *account != rootAccount {
 		return usagef("a command runs as root: add -u root (the odoo shell opens a shell only)")
@@ -246,10 +246,10 @@ func (a *App) sshDir() (string, error) {
 	return dir, os.Chmod(dir, 0o700)
 }
 
-// serverCertificate is cw ssh's certificate for the server and account.
+// serverCertificate is cw servers ssh's certificate for the server and account.
 func (a *App) serverCertificate(c *platform.Client, server sshServer, public, dir string) (sshCertificate, error) {
 	return a.certificate(c, certificateRequest{
-		command: "cw ssh",
+		command: "cw servers ssh",
 		kept:    server.kept(),
 		path:    "/servers/" + server.id + "/ssh-certificate",
 		body:    map[string]any{"user": server.account},

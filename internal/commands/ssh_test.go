@@ -127,7 +127,7 @@ func sshCommandLine(h *harness, account, login string, command ...string) string
 func TestSSHOpensTheOdooShellByDefault(t *testing.T) {
 	var asked []string
 	h, ran := sshHarness(t, sshPlatform(t, inAnHour(), &asked))
-	if code := h.run("ssh", "41"); code != 0 {
+	if code := h.run("servers", "ssh", "41"); code != 0 {
 		t.Fatalf("exit %d: %s", code, h.stderr)
 	}
 	if strings.Join(asked, ",") != "odoo" {
@@ -141,7 +141,7 @@ func TestSSHOpensTheOdooShellByDefault(t *testing.T) {
 		t.Errorf("stderr %q", h.stderr)
 	}
 	// Still valid for the hour: used again, nothing asked.
-	if code := h.run("ssh", "41"); code != 0 || len(asked) != 1 {
+	if code := h.run("servers", "ssh", "41"); code != 0 || len(asked) != 1 {
 		t.Errorf("exit %d, %d requests: a valid certificate is used again", code, len(asked))
 	}
 }
@@ -149,7 +149,7 @@ func TestSSHOpensTheOdooShellByDefault(t *testing.T) {
 func TestSSHSignsInToRootOnRequest(t *testing.T) {
 	var asked []string
 	h, ran := sshHarness(t, sshPlatform(t, inAnHour(), &asked))
-	if code := h.run("ssh", "web-1", "-u", "root", "--", "uptime", "-p"); code != 0 {
+	if code := h.run("servers", "ssh", "web-1", "-u", "root", "--", "uptime", "-p"); code != 0 {
 		t.Fatalf("exit %d: %s", code, h.stderr)
 	}
 	if strings.Join(asked, ",") != "root" {
@@ -183,11 +183,11 @@ func TestSSHKeepsACertificatePerAccount(t *testing.T) {
 		asked string
 		login string
 	}{
-		{[]string{"ssh", "41"}, "odoo", "appshell"},
-		{[]string{"ssh", "41", "-u", "root"}, "odoo,root", "root"},
-		{[]string{"ssh", "41"}, "odoo,root", "appshell"},
-		{[]string{"ssh", "41", "-u", "root"}, "odoo,root", "root"},
-		{[]string{"ssh", "41", "-u", "odoo"}, "odoo,root", "appshell"},
+		{[]string{"servers", "ssh", "41"}, "odoo", "appshell"},
+		{[]string{"servers", "ssh", "41", "-u", "root"}, "odoo,root", "root"},
+		{[]string{"servers", "ssh", "41"}, "odoo,root", "appshell"},
+		{[]string{"servers", "ssh", "41", "-u", "root"}, "odoo,root", "root"},
+		{[]string{"servers", "ssh", "41", "-u", "odoo"}, "odoo,root", "appshell"},
 	}
 	for _, step := range steps {
 		if code := h.run(step.args...); code != 0 {
@@ -205,7 +205,7 @@ func TestSSHKeepsACertificatePerAccount(t *testing.T) {
 func TestSSHTakesOdooOrRoot(t *testing.T) {
 	var asked []string
 	h, _ := sshHarness(t, sshPlatform(t, inAnHour(), &asked))
-	if code := h.run("ssh", "41", "-u", "admin"); code != 2 || len(asked) != 0 {
+	if code := h.run("servers", "ssh", "41", "-u", "admin"); code != 2 || len(asked) != 0 {
 		t.Errorf("exit %d, %d requests", code, len(asked))
 	}
 	if want := `cw: -u is odoo or root, not "admin"`; !strings.Contains(h.stderr.String(), want) {
@@ -217,8 +217,8 @@ func TestSSHTakesOdooOrRoot(t *testing.T) {
 // even the server's name.
 func TestSSHRefusesACommandWithoutRoot(t *testing.T) {
 	for _, args := range [][]string{
-		{"ssh", "web-1", "--", "df", "-h"},
-		{"ssh", "web-1", "-u", "odoo", "--", "df", "-h"},
+		{"servers", "ssh", "web-1", "--", "df", "-h"},
+		{"servers", "ssh", "web-1", "-u", "odoo", "--", "df", "-h"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			untouched := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -247,7 +247,7 @@ func TestSSHAgainstAPlatformWithoutAccounts(t *testing.T) {
 		return answer
 	})
 	h, ran := sshHarness(t, server)
-	if code := h.run("ssh", "41"); code != 1 || *ran != nil {
+	if code := h.run("servers", "ssh", "41"); code != 1 || *ran != nil {
 		t.Fatalf("exit %d, ssh %v: %s", code, *ran, h.stderr)
 	}
 	if want := "signed a certificate for root, not odoo"; !strings.Contains(h.stderr.String(), want) {
@@ -256,7 +256,7 @@ func TestSSHAgainstAPlatformWithoutAccounts(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(h.app.configDir, "ssh", "41-odoo.json")); err == nil {
 		t.Error("a refused certificate is not kept")
 	}
-	if code := h.run("ssh", "41", "-u", "root"); code != 0 || strings.Join(*ran, " ") != sshCommandLine(h, "root", "root") {
+	if code := h.run("servers", "ssh", "41", "-u", "root"); code != 0 || strings.Join(*ran, " ") != sshCommandLine(h, "root", "root") {
 		t.Errorf("exit %d, ssh %v: %s", code, *ran, h.stderr)
 	}
 }
@@ -283,7 +283,7 @@ func TestSSHSaysWhatTheAccountTakesWhenRefused(t *testing.T) {
 	for account, hint := range cases {
 		t.Run(account, func(t *testing.T) {
 			h, ran := sshHarness(t, sshRefusing(t, http.StatusForbidden, "access_denied", "Access denied"))
-			if code := h.run("ssh", "41", "-u", account); code != 1 || *ran != nil {
+			if code := h.run("servers", "ssh", "41", "-u", account); code != 1 || *ran != nil {
 				t.Fatalf("exit %d, ssh %v: %s", code, *ran, h.stderr)
 			}
 			if got, want := h.stderr.String(), "cw: Access denied\n"+hint+"\n"; got != want {
@@ -297,7 +297,7 @@ func TestSSHSaysWhatTheAccountTakesWhenRefused(t *testing.T) {
 func TestSSHPrintsTheReasonOfABadRequest(t *testing.T) {
 	reason := "web-1 does not take certificates yet: Harden Server sets it up."
 	h, ran := sshHarness(t, sshRefusing(t, http.StatusBadRequest, "invalid_request", reason))
-	if code := h.run("ssh", "41"); code != 2 || *ran != nil {
+	if code := h.run("servers", "ssh", "41"); code != 2 || *ran != nil {
 		t.Fatalf("exit %d, ssh %v: %s", code, *ran, h.stderr)
 	}
 	if got, want := h.stderr.String(), "cw: "+reason+"\n"; got != want {
@@ -310,7 +310,7 @@ func TestSSHAsksAgainOnceTheCertificateRunsOut(t *testing.T) {
 	server := sshPlatform(t, time.Now().UTC().Add(30*time.Second).Format("2006-01-02 15:04:05"), &asked)
 	h, _ := sshHarness(t, server)
 	for range 2 {
-		if code := h.run("ssh", "41"); code != 0 {
+		if code := h.run("servers", "ssh", "41"); code != 0 {
 			t.Fatalf("exit %d: %s", code, h.stderr)
 		}
 	}
@@ -333,7 +333,7 @@ func TestSSHDerivesThePublicKeyWhenThePubIsMissing(t *testing.T) {
 		derived = append(derived, path)
 		return publicKey, nil
 	}
-	if code := h.run("ssh", "41", "--key", key); code != 0 {
+	if code := h.run("servers", "ssh", "41", "--key", key); code != 0 {
 		t.Fatalf("exit %d: %s", code, h.stderr)
 	}
 	if len(derived) != 1 || derived[0] != key || len(asked) != 1 || (*ran)[1] != key {
@@ -386,7 +386,7 @@ func TestSSHSignsInWithTheServersOwnKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.env["CW_SERVER_SSH_41"] = work
-	if code := h.run("ssh", "41"); code != 0 {
+	if code := h.run("servers", "ssh", "41"); code != 0 {
 		t.Fatalf("exit %d: %s", code, h.stderr)
 	}
 	if (*ran)[1] != work {
@@ -402,7 +402,7 @@ func TestSSHNamesBothWaysWhenNoPublicKeyCanBeHad(t *testing.T) {
 			h, _ := sshHarness(t, sshPlatform(t, "", &asked))
 			key := filepath.Join(h.env["HOME"], ".ssh", "mykey")
 			h.app.keygenRunner = func(string) (string, error) { return "", errors.New("incorrect passphrase") }
-			args := []string{"ssh", "41"}
+			args := []string{"servers", "ssh", "41"}
 			if named == "--key" {
 				args = append(args, "--key", key)
 			} else {
@@ -429,11 +429,26 @@ func TestSSHNeedsAKeyAndOneServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := "no SSH key named for 41: set CW_SERVER_SSH_41 (this server) or CW_SERVER_SSH (every server)"
-	if code := h.run("ssh", "41"); code != 1 || len(asked) != 0 || !strings.Contains(h.stderr.String(), want) {
+	if code := h.run("servers", "ssh", "41"); code != 1 || len(asked) != 0 || !strings.Contains(h.stderr.String(), want) {
 		t.Errorf("exit %d, %d requests: %s", code, len(asked), h.stderr)
 	}
 	h = newHarness(t, nil)
 	if code := h.run("ssh"); code != 2 {
 		t.Errorf("no server: exit %d", code)
+	}
+}
+
+// cw ssh is gone (cw servers ssh since 0.18.0): it answers like any unknown command.
+func TestOldSSHCommandIsUnknown(t *testing.T) {
+	untouched := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("asked %s %s", r.Method, r.URL.Path)
+	}))
+	t.Cleanup(untouched.Close)
+	h, ran := sshHarness(t, untouched)
+	if code := h.run("ssh", "web-1"); code == 0 || *ran != nil {
+		t.Errorf("exit %d, ssh %v", code, *ran)
+	}
+	if !strings.Contains(h.stderr.String(), `unknown command "ssh"`) {
+		t.Errorf("stderr: %q", h.stderr.String())
 	}
 }

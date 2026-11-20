@@ -34,11 +34,12 @@ func TestTabCompletesCommandsFlagsAndValues(t *testing.T) {
 		{[]string{"restore-points", "shop", "--pro"}, "--project"},
 		{[]string{"completion", ""}, "zsh"},
 		{[]string{"attention", "--"}, "--json"},
-		{[]string{"ssh", "web-1", "-"}, "-u"},
-		{[]string{"ssh", "web-1", "-u", "r"}, "root"},
-		{[]string{"apps", "she"}, "shell"},
-		{[]string{"apps", "shell", "shop", "--o"}, "--odoo"},
-		{[]string{"apps", "shell", "shop", "--n"}, "--namespace"},
+		{[]string{"servers", "ssh", "web-1", "-"}, "-u"},
+		{[]string{"servers", "ssh", "web-1", "-u", "r"}, "root"},
+		{[]string{"apps", "ss"}, "ssh"},
+		{[]string{"servers", "s"}, "ssh"},
+		{[]string{"apps", "ssh", "shop", "--s"}, "--shell"},
+		{[]string{"apps", "ssh", "shop", "--n"}, "--namespace"},
 	}
 	for _, c := range cases {
 		got := complete(t, c.words...)
@@ -53,10 +54,10 @@ func TestTabOffersOnlyWhatFits(t *testing.T) {
 		words []string
 		want  string
 	}{
-		{[]string{"apps", "show", ""}, ""},                                           // the name is the platform's: nothing offline
-		{[]string{"urls", ""}, ""},                                                   // urls has no show
-		{[]string{"apps", "--json", "sh"}, "shell show"},                             // --json takes no value
-		{[]string{"apps", "--project", "x", ""}, "shell show update update-modules"}, // --project does
+		{[]string{"apps", "show", ""}, ""},                                         // the name is the platform's: nothing offline
+		{[]string{"urls", ""}, ""},                                                 // urls has no show
+		{[]string{"apps", "--json", "sh"}, "show"},                                 // --json takes no value
+		{[]string{"apps", "--project", "x", ""}, "show ssh update update-modules"}, // --project does
 		{[]string{"nope", "--"}, ""},
 	}
 	for _, c := range cases {

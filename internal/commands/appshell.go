@@ -7,9 +7,9 @@ import (
 	"github.com/kingswady/cwcli/internal/platform"
 )
 
-// cw apps shell opens an app's shell from this machine, what the dashboard's
-// app shell opens: bash in its container, or the odoo shell with --odoo. Like
-// cw ssh it signs in with a certificate the platform signs for one of the
+// cw apps ssh opens an app's shell from this machine, what the dashboard's app
+// shell opens: bash in its container, or Odoo's shell with --shell. Like cw
+// servers ssh it signs in with a certificate the platform signs for one of the
 // person's own keys, to the login appshell on the app's server; the
 // certificate forces that shell, so it runs no command of its own. The
 // platform's side, in deployment_workflow: docs/specs/ssh-odoo-default-root-owners.md.
@@ -22,22 +22,23 @@ const appShellAccount = "app"
 const appShellHint = "an app's shell takes Developer Plus outside production, Maintainer or Admin on production; " +
 	"your key must also be in My Settings → SSH Keys"
 
-func (a *App) appShell(args []string) error {
-	fs := a.newFlags("apps shell")
-	odoo := fs.Bool("odoo", false, "open the odoo shell (Odoo's Python shell on the app's database) instead of bash")
+func (a *App) appSSH(args []string) error {
+	fs := a.newFlags("apps ssh")
+	odooShell := fs.Bool("shell", false, "open Odoo's shell (its Python shell on the app's database) instead of bash")
 	keyPath := fs.String("key", "", "your private key (default: $"+keyVariable+"_<server id>, else $"+keyVariable+")")
 	namespace := fs.String("namespace", "", "look the app up in this namespace only")
 	apps := resourceNamed("apps")
 	narrow := narrowFlags(fs, apps, "<app>")
 	fs.Usage = func() {
-		fmt.Fprintf(a.stderr, "Usage: cw apps shell <app> [--odoo] [--key path] [--namespace code]\n\n"+
+		fmt.Fprintf(a.stderr, "Usage: cw apps ssh <app> [--shell] [--key path] [--namespace code]\n\n"+
 			"Opens the app's shell from this machine, what the dashboard's app shell opens: bash in its\n"+
-			"container, or with --odoo the odoo shell. It takes Developer Plus outside production, Maintainer\n"+
-			"or Admin on production. The shell is all it opens: a command after -- is refused.\n\n"+
+			"container, or with --shell Odoo's shell on its database. It takes Developer Plus outside\n"+
+			"production, Maintainer or Admin on production. The shell is all it opens: a command after --\n"+
+			"is refused.\n\n"+
 			"The certificate the platform signs for your own key lasts as long as the setting of the app's\n"+
 			"server says (15 minutes by default); cw keeps it per app and mode and asks again once it runs\n"+
 			"out. Register the key in My Settings → SSH Keys first; the token needs apps.get and\n"+
-			"apps.shell_certificate ticked.\n\n"+
+			"apps.ssh_certificate ticked.\n\n"+
 			"The key is --key, else the path in "+keyVariable+"_<server id> (the app's server, its id as cw\n"+
 			"servers lists it), else the path in "+keyVariable+". Where several apps share the name,\n"+
 			"%s narrow which one it means.\n\nFlags:\n", joinFlags(narrowing(apps), "and"))
@@ -50,7 +51,7 @@ func (a *App) appShell(args []string) error {
 	}
 	if len(positional) != 1 {
 		fs.Usage()
-		return usagef("name one app: cw apps shell <id|name>")
+		return usagef("name one app: cw apps ssh <id|name>")
 	}
 	if len(command) > 0 {
 		return usagef("an app shell takes no command")
@@ -76,14 +77,14 @@ func (a *App) appShell(args []string) error {
 		return err
 	}
 	mode, words := "shell", "the shell"
-	if *odoo {
-		mode, words = "odoo", "the odoo shell"
+	if *odooShell {
+		mode, words = "odoo", "the Odoo shell"
 	}
 	kept := "app-" + id + "-" + mode
 	certificate, err := a.certificate(c, certificateRequest{
-		command: "cw apps shell",
+		command: "cw apps ssh",
 		kept:    kept,
-		path:    "/apps/" + id + "/shell-certificate",
+		path:    "/apps/" + id + "/ssh-certificate",
 		body:    map[string]any{"mode": mode},
 		hint:    appShellHint,
 		signed: func(fresh sshCertificate) (string, error) {
@@ -106,7 +107,7 @@ func (a *App) appShell(args []string) error {
 func serverOf(c *platform.Client, app record) (string, error) {
 	value, sent := app["server_id"]
 	if !sent {
-		return "", fmt.Errorf("%s does not offer cw apps shell yet — it needs a newer platform version", c.Base)
+		return "", fmt.Errorf("%s does not offer cw apps ssh yet — it needs a newer platform version", c.Base)
 	}
 	if id := output.Text(value); id != "-" {
 		return id, nil

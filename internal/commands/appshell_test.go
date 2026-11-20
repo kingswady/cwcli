@@ -40,7 +40,7 @@ func appShellPlatform(t *testing.T, app record, asked *[]string, answer func(w h
 			json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"items": []record{app}, "total": 1}})
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/apps/"+shellApp):
 			json.NewEncoder(w).Encode(map[string]any{"data": app})
-		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/apps/"+shellApp+"/shell-certificate"):
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/apps/"+shellApp+"/ssh-certificate"):
 			var body map[string]string
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["public_key"] != publicKey || len(body) != 2 {
 				t.Errorf("body %v %v: the public key and the mode, nothing else", body, err)
@@ -89,11 +89,11 @@ func appShellCommandLine(h *harness, mode string) string {
 func TestAppShellOpensTheShellByDefault(t *testing.T) {
 	var asked []string
 	h, ran := sshHarness(t, appShellPlatform(t, shellAppRecord(), &asked, signingShells(inAnHour())))
-	if code := h.run("apps", "shell", "shop"); code != 0 {
+	if code := h.run("apps", "ssh", "shop"); code != 0 {
 		t.Fatalf("exit %d: %s", code, h.stderr)
 	}
 	if strings.Join(asked, ",") != "shell" {
-		t.Errorf("asked for %q: no --odoo asks for the shell", asked)
+		t.Errorf("asked for %q: no --shell asks for the shell", asked)
 	}
 	if got, want := strings.Join(*ran, " "), appShellCommandLine(h, "shell"); got != want {
 		t.Errorf("ssh\n got %s\nwant %s", got, want)
@@ -103,12 +103,12 @@ func TestAppShellOpensTheShellByDefault(t *testing.T) {
 		t.Errorf("stderr %q", h.stderr)
 	}
 	// Still valid for the hour: used again, nothing asked.
-	if code := h.run("apps", "shell", "shop"); code != 0 || len(asked) != 1 {
+	if code := h.run("apps", "ssh", "shop"); code != 0 || len(asked) != 1 {
 		t.Errorf("exit %d, %d requests: a valid certificate is used again", code, len(asked))
 	}
 }
 
-// --odoo asks for the odoo shell; each mode keeps its own certificate.
+// --shell asks for the odoo shell; each mode keeps its own certificate.
 func TestAppShellKeepsACertificatePerMode(t *testing.T) {
 	var asked []string
 	h, ran := sshHarness(t, appShellPlatform(t, shellAppRecord(), &asked, signingShells(inAnHour())))
@@ -117,10 +117,10 @@ func TestAppShellKeepsACertificatePerMode(t *testing.T) {
 		asked string
 		mode  string
 	}{
-		{[]string{"apps", "shell", "shop", "--odoo"}, "odoo", "odoo"},
-		{[]string{"apps", "shell", "shop"}, "odoo,shell", "shell"},
-		{[]string{"apps", "shell", "--odoo", shellApp}, "odoo,shell", "odoo"},
-		{[]string{"apps", "shell", shellApp}, "odoo,shell", "shell"},
+		{[]string{"apps", "ssh", "shop", "--shell"}, "odoo", "odoo"},
+		{[]string{"apps", "ssh", "shop"}, "odoo,shell", "shell"},
+		{[]string{"apps", "ssh", "--shell", shellApp}, "odoo,shell", "odoo"},
+		{[]string{"apps", "ssh", shellApp}, "odoo,shell", "shell"},
 	}
 	for _, step := range steps {
 		if code := h.run(step.args...); code != 0 {
@@ -134,7 +134,7 @@ func TestAppShellKeepsACertificatePerMode(t *testing.T) {
 		}
 	}
 	checkKeptFiles(t, filepath.Join(h.app.configDir, "ssh"), "app-"+shellApp+"-odoo", "appshell")
-	if !strings.Contains(h.stderr.String(), "cw: certificate 7 for the odoo shell of shop, valid until ") {
+	if !strings.Contains(h.stderr.String(), "cw: certificate 7 for the Odoo shell of shop, valid until ") {
 		t.Errorf("stderr %q", h.stderr)
 	}
 }
@@ -148,7 +148,7 @@ func TestAppShellSignsInWithItsServersKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.env["CW_SERVER_SSH_"+shellServer] = work
-	if code := h.run("apps", "shell", "shop"); code != 0 {
+	if code := h.run("apps", "ssh", "shop"); code != 0 {
 		t.Fatalf("exit %d: %s", code, h.stderr)
 	}
 	if (*ran)[2] != work {
@@ -157,7 +157,7 @@ func TestAppShellSignsInWithItsServersKey(t *testing.T) {
 	delete(h.env, "CW_SERVER_SSH_"+shellServer)
 	delete(h.env, "CW_SERVER_SSH")
 	want := "no SSH key named for " + shellServer + ": set CW_SERVER_SSH_" + shellServer + " (this server)"
-	if code := h.run("apps", "shell", "shop", "--odoo"); code != 1 || len(asked) != 1 || !strings.Contains(h.stderr.String(), want) {
+	if code := h.run("apps", "ssh", "shop", "--shell"); code != 1 || len(asked) != 1 || !strings.Contains(h.stderr.String(), want) {
 		t.Errorf("exit %d, %d requests: %s", code, len(asked), h.stderr)
 	}
 }
@@ -169,7 +169,7 @@ func TestAppShellRefusesACommand(t *testing.T) {
 	}))
 	t.Cleanup(untouched.Close)
 	h, ran := sshHarness(t, untouched)
-	if code := h.run("apps", "shell", "shop", "--odoo", "--", "ls"); code != 2 || *ran != nil {
+	if code := h.run("apps", "ssh", "shop", "--shell", "--", "ls"); code != 2 || *ran != nil {
 		t.Errorf("exit %d, ssh %v", code, *ran)
 	}
 	if want := "cw: an app shell takes no command\n"; h.stderr.String() != want {
@@ -182,7 +182,7 @@ func TestAppShellRefusesACommand(t *testing.T) {
 func TestAppShellNeedsAPlatformWithAppShells(t *testing.T) {
 	withoutServerID := shellAppRecord()
 	delete(withoutServerID, "server_id")
-	newer := "does not offer cw apps shell yet — it needs a newer platform version"
+	newer := "does not offer cw apps ssh yet — it needs a newer platform version"
 	cases := []struct {
 		name   string
 		app    record
@@ -192,7 +192,7 @@ func TestAppShellNeedsAPlatformWithAppShells(t *testing.T) {
 	}{
 		{"apps.get without the server's id", withoutServerID, nil, 0, newer},
 		{"no such function", shellAppRecord(),
-			refusingShells(http.StatusNotFound, "not_found", "No API function at /apps/"+shellApp+"/shell-certificate"), 1, newer},
+			refusingShells(http.StatusNotFound, "not_found", "No API function at /apps/"+shellApp+"/ssh-certificate"), 1, newer},
 		{"a certificate that is no app shell", shellAppRecord(), func(w http.ResponseWriter, _ string) {
 			json.NewEncoder(w).Encode(map[string]any{"data": certificateAnswer("odoo", inAnHour())})
 		}, 1, "did not sign a certificate for the shell of an app — it needs a newer platform version; cw did not sign in"},
@@ -204,7 +204,7 @@ func TestAppShellNeedsAPlatformWithAppShells(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var asked []string
 			h, ran := sshHarness(t, appShellPlatform(t, tc.app, &asked, tc.answer))
-			if code := h.run("apps", "shell", "shop"); code != 1 || *ran != nil || len(asked) != tc.asked {
+			if code := h.run("apps", "ssh", "shop"); code != 1 || *ran != nil || len(asked) != tc.asked {
 				t.Fatalf("exit %d, ssh %v, %d requests: %s", code, *ran, len(asked), h.stderr)
 			}
 			if !strings.Contains(h.stderr.String(), tc.want) {
@@ -222,7 +222,7 @@ func TestAppShellOnNoServer(t *testing.T) {
 	app["server_id"] = nil
 	var asked []string
 	h, ran := sshHarness(t, appShellPlatform(t, app, &asked, nil))
-	if code := h.run("apps", "shell", "shop"); code != 1 || *ran != nil || len(asked) != 0 {
+	if code := h.run("apps", "ssh", "shop"); code != 1 || *ran != nil || len(asked) != 0 {
 		t.Fatalf("exit %d, ssh %v, %d requests", code, *ran, len(asked))
 	}
 	if want := "cw: shop runs on no server: it has no shell to open\n"; h.stderr.String() != want {
@@ -249,7 +249,7 @@ func TestAppShellSaysWhatItTakesWhenRefused(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var asked []string
 			h, ran := sshHarness(t, appShellPlatform(t, shellAppRecord(), &asked, tc.answer))
-			if code := h.run("apps", "shell", "shop"); code != tc.code || *ran != nil {
+			if code := h.run("apps", "ssh", "shop"); code != tc.code || *ran != nil {
 				t.Fatalf("exit %d, ssh %v: %s", code, *ran, h.stderr)
 			}
 			if got := h.stderr.String(); got != tc.want {
