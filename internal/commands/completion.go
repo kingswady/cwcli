@@ -84,6 +84,8 @@ var flagValues = map[string][]string{
 	// cw apps update and cw apps update-modules
 	"modules":       {"changed", "configured", "none"},
 	"backup-format": {"zip", "dump"},
+	// cw servers ssh -u
+	"u": {"odoo", "root"},
 }
 
 func (a *App) candidates(words []string) []string {
@@ -112,7 +114,7 @@ func (a *App) candidates(words []string) []string {
 	}
 	if strings.HasPrefix(current, "-") {
 		var names []string
-		fs.VisitAll(func(f *flag.Flag) { names = append(names, "--"+f.Name) })
+		fs.VisitAll(func(f *flag.Flag) { names = append(names, flagWord(f.Name)) })
 		return withPrefix(names, current)
 	}
 	switch positional := positionals(fs, before[1:]); {
@@ -121,7 +123,9 @@ func (a *App) candidates(words []string) []string {
 	case command == "runs" && len(positional) == 0:
 		return withPrefix([]string{"retry", "show"}, current)
 	case command == "apps" && len(positional) == 0:
-		return withPrefix([]string{"show", "update", "update-modules"}, current)
+		return withPrefix([]string{"show", "ssh", "update", "update-modules"}, current)
+	case command == "servers" && len(positional) == 0:
+		return withPrefix([]string{"show", "ssh"}, current)
 	case command == "backups" && len(positional) == 0:
 		return withPrefix([]string{"check", "import", "show"}, current)
 	case command == "maintenance" && len(positional) == 1:
@@ -139,7 +143,7 @@ func commandNames() []string {
 	names := []string{
 		"login", "logout", "whoami", "namespaces", "use", "update", "completion",
 		"attention", "restore-points", "logs", "mcp", "help", "version", "backup", "restart",
-		"maintenance", "ssh",
+		"maintenance",
 	}
 	for _, res := range resources {
 		names = append(names, res.name)
@@ -204,6 +208,14 @@ func positionals(fs *flag.FlagSet, words []string) []string {
 		}
 	}
 	return found
+}
+
+// flagWord is how a flag is typed: one dash for a letter (cw servers ssh -u), two otherwise.
+func flagWord(name string) string {
+	if len(name) == 1 {
+		return "-" + name
+	}
+	return "--" + name
 }
 
 func isBoolFlag(f *flag.Flag) bool {
