@@ -256,12 +256,15 @@ separately from reading; until then cw says they are not open to your account.
 cw servers ssh web-1                     # the server's shell, as odoo
 cw servers ssh web-1 -u root             # root
 cw servers ssh web-1 -u root -- df -h    # a command, as root
+cw servers ssh web-1 -u root --reason "disk full on /var"   # say why, in the owners' email
 ```
 
 `cw servers ssh` signs in from this machine with a certificate the platform signs for your own key, registered in
 My Settings → SSH Keys. By default it opens the server's shell as odoo, the dashboard's server shell; that takes
 terminal access to the server. `-u root` asks for root, which takes an operator or an Admin of the namespace
 that owns the server's cloud provider. A command after `--` needs `-u root`: the odoo shell opens a shell only.
+A root certificate is emailed to the server's owners (to the operators for staff); `--reason` says why in that
+email (it needs `-u root` and a platform that takes reasons).
 A certificate lasts as long as the server's setting says (15 minutes by default); cw keeps it per server and
 account and asks again once it runs out. (Before cw 0.18.0 this was `cw ssh`, which signed in as root.)
 

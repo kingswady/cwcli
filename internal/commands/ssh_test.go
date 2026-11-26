@@ -31,7 +31,8 @@ func certificateAnswer(account, validBefore string) map[string]any {
 
 // sshPlatform answers servers.ssh_certificate for server 41 as the platform
 // does (the account asked for, odoo when none), keeping the user each request
-// sent ("" for none) in asked. GET /servers knows server 41 as web-1.
+// sent ("" for none) in asked, "|" and its reason when it sent one. GET /servers
+// knows server 41 as web-1.
 func sshPlatform(t *testing.T, validBefore string, asked *[]string) *httptest.Server {
 	t.Helper()
 	return sshPlatformAnswering(t, asked, func(user string) map[string]any {
@@ -59,11 +60,16 @@ func sshPlatformAnswering(t *testing.T, asked *[]string, answer func(user string
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["public_key"] != publicKey {
 			t.Errorf("body %v %v", body, err)
 		}
-		*asked = append(*asked, body["user"])
+		user := body["user"]
+		if reason, sent := body["reason"]; sent {
+			*asked = append(*asked, user+"|"+reason)
+		} else {
+			*asked = append(*asked, user)
+		}
 		if r.Header.Get("Idempotency-Key") == "" {
 			t.Error("a change carries an Idempotency-Key")
 		}
-		json.NewEncoder(w).Encode(map[string]any{"data": answer(body["user"])})
+		json.NewEncoder(w).Encode(map[string]any{"data": answer(user)})
 	}))
 	t.Cleanup(server.Close)
 	return server
@@ -162,6 +168,30 @@ func TestSSHSignsInToRootOnRequest(t *testing.T) {
 	// The account is the answer's, the server as typed.
 	if !strings.Contains(h.stderr.String(), "cw: certificate 7 for root on web-1, valid until ") {
 		t.Errorf("stderr %q", h.stderr)
+	}
+}
+
+// A root certificate's reason goes to the platform, which quotes it in the
+// notice; with no reason none is sent, which a platform before reasons refuses.
+func TestSSHSendsTheReasonForRoot(t *testing.T) {
+	var asked []string
+	h, _ := sshHarness(t, sshPlatform(t, inAnHour(), &asked))
+	if code := h.run("servers", "ssh", "41", "-u", "root", "--reason", "  disk full on /var  "); code != 0 {
+		t.Fatalf("exit %d: %s", code, h.stderr)
+	}
+	if strings.Join(asked, ",") != "root|disk full on /var" {
+		t.Errorf("asked for %q, want the trimmed reason", asked)
+	}
+}
+
+func TestSSHTakesAReasonOnlyForRoot(t *testing.T) {
+	var asked []string
+	h, _ := sshHarness(t, sshPlatform(t, inAnHour(), &asked))
+	if code := h.run("servers", "ssh", "41", "--reason", "look around"); code != 2 {
+		t.Errorf("exit %d, want a usage error", code)
+	}
+	if !strings.Contains(h.stderr.String(), "--reason goes with -u root") || len(asked) != 0 {
+		t.Errorf("stderr %q, %d requests", h.stderr, len(asked))
 	}
 }
 

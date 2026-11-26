@@ -70,7 +70,17 @@ type sshCertificate struct {
 }
 
 // sshServer is what cw servers ssh signs in to: the server's id, the server as typed, and the account.
-type sshServer struct{ id, typed, account string }
+type sshServer struct{ id, typed, account, reason string }
+
+// body is what cw servers ssh asks for besides the key; a reason only when
+// given, since a platform from before reasons refuses the parameter.
+func (s sshServer) body() map[string]any {
+	body := map[string]any{"user": s.account}
+	if s.reason != "" {
+		body["reason"] = s.reason
+	}
+	return body
+}
 
 // kept names the files cw keeps for this server and account.
 func (s sshServer) kept() string { return s.id + "-" + s.account }
@@ -99,12 +109,15 @@ func (a *App) ssh(args []string) error {
 	account := fs.String("u", odooAccount, "the account: odoo (the server's shell) or root")
 	keyPath := fs.String("key", "", "your private key (default: $"+keyVariable+"_<server id>, else $"+keyVariable+")")
 	namespace := fs.String("namespace", "", "look the server up in this namespace only")
+	reason := fs.String("reason", "", "with -u root: why, quoted in the notice the server's owners read")
 	fs.Usage = func() {
-		fmt.Fprint(a.stderr, "Usage: cw servers ssh <server> [-u odoo|root] [--key path] [--namespace code] [-- command]\n\n"+
+		fmt.Fprint(a.stderr, "Usage: cw servers ssh <server> [-u odoo|root] [--reason text] [--key path] [--namespace code] [-- command]\n\n"+
 			"Opens the server's shell as odoo from this machine (the dashboard's server shell), with a\n"+
 			"certificate the platform signs for your own key; it takes terminal access to the server.\n"+
 			"-u root signs in to root instead, which takes an operator or an Admin of the namespace that owns\n"+
-			"the server's cloud provider. A command after -- needs -u root: the odoo shell opens a shell only.\n\n"+
+			"the server's cloud provider. A command after -- needs -u root: the odoo shell opens a shell only.\n"+
+			"A root certificate is mailed to the server's owners (to the operators for staff); --reason\n"+
+			"says why in that mail.\n\n"+
 			"The certificate lasts as long as the server's setting says (15 minutes by default); cw keeps it\n"+
 			"per server and account and asks again once it runs out. Register the key in My Settings → SSH\n"+
 			"Keys first; the token needs servers.ssh_certificate ticked; the server's sign-in log names you.\n"+
@@ -129,6 +142,9 @@ func (a *App) ssh(args []string) error {
 	if len(command) > 0 && *account != rootAccount {
 		return usagef("a command runs as root: add -u root (the odoo shell opens a shell only)")
 	}
+	if *reason != "" && *account != rootAccount {
+		return usagef("--reason goes with -u root: only a root certificate is told to anyone")
+	}
 	c, err := a.client()
 	if err != nil {
 		return err
@@ -137,7 +153,7 @@ func (a *App) ssh(args []string) error {
 	if err != nil {
 		return err
 	}
-	server := sshServer{id: id, typed: positional[0], account: *account}
+	server := sshServer{id: id, typed: positional[0], account: *account, reason: strings.TrimSpace(*reason)}
 	key, public, err := a.sshKey(*keyPath, id)
 	if err != nil {
 		return err
@@ -252,7 +268,7 @@ func (a *App) serverCertificate(c *platform.Client, server sshServer, public, di
 		command: "cw servers ssh",
 		kept:    server.kept(),
 		path:    "/servers/" + server.id + "/ssh-certificate",
-		body:    map[string]any{"user": server.account},
+		body:    server.body(),
 		hint:    accessHints[server.account],
 		signed: func(fresh sshCertificate) (string, error) {
 			// A platform from before accounts takes no user and signs root.
