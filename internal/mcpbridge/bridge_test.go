@@ -276,6 +276,25 @@ func TestAnAnswerForAnotherIDIsNotTheAnswer(t *testing.T) {
 	}
 }
 
+// The proxy's page for a platform that is down is not a wrong URL.
+func TestAProxyPageSaysThePlatformIsDown(t *testing.T) {
+	server, _ := fakeMCP(t, map[string]func(http.ResponseWriter, json.RawMessage){
+		"tools/list": func(w http.ResponseWriter, _ json.RawMessage) {
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte("<html>We'll be right back</html>"))
+		},
+	})
+	_, answers := runMCP(t, server, `{"jsonrpc":"2.0","id":"a","method":"tools/list"}`)
+	if len(answers) != 1 {
+		t.Fatalf("answers %v", answers)
+	}
+	if message := errorOf(t, answers[0]); !strings.Contains(message, "is down or restarting (HTTP 503") ||
+		strings.Contains(message, "is the URL right") {
+		t.Errorf("error %q", message)
+	}
+}
+
 func TestNotificationsAndResponsesAreNeverAnswered(t *testing.T) {
 	server, _ := fakeMCP(t, map[string]func(http.ResponseWriter, json.RawMessage){
 		"notifications/cancelled": func(w http.ResponseWriter, _ json.RawMessage) {

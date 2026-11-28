@@ -144,11 +144,7 @@ func (c *Client) decodeAnswer(resp *http.Response, body []byte) (json.RawMessage
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(body, &envelope); err != nil {
-		return nil, &APIError{
-			Status:  resp.StatusCode,
-			Code:    "bad_response",
-			Message: fmt.Sprintf("%s did not answer as the platform API (HTTP %d) — is the URL right?", c.Base, resp.StatusCode),
-		}
+		return nil, &APIError{Status: resp.StatusCode, Code: "bad_response", Message: notTheAPI(c.Base, resp.StatusCode)}
 	}
 	if envelope.Error != nil {
 		return nil, &APIError{
@@ -160,6 +156,17 @@ func (c *Client) decodeAnswer(resp *http.Response, body []byte) (json.RawMessage
 		return nil, &APIError{Status: resp.StatusCode, Code: "http_error", Message: fmt.Sprintf("HTTP %d from %s", resp.StatusCode, c.Base)}
 	}
 	return envelope.Data, nil
+}
+
+// notTheAPI says what an answer that is not the API's means. A 502 to 504 is
+// the proxy in front of the platform answering for it (a page, or plain text):
+// the URL is right and the platform is down or restarting.
+func notTheAPI(base string, status int) string {
+	if status >= http.StatusBadGateway && status <= http.StatusGatewayTimeout {
+		return fmt.Sprintf("%s is down or restarting (HTTP %d from the proxy in front of it) — try again in a minute",
+			base, status)
+	}
+	return fmt.Sprintf("%s did not answer as the platform API (HTTP %d) — is the URL right?", base, status)
 }
 
 // NetworkError is a request that never got an answer: the platform could not be

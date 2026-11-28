@@ -204,11 +204,21 @@ func (b *Bridge) relay(msg *mcpMessage, resp *http.Response) {
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
 	if !b.isAnswer(msg, body) {
-		b.reply(msg.ID, -32603, fmt.Sprintf("%s answered HTTP %d, not an MCP answer to this request — is the URL right?",
-			b.Endpoint, resp.StatusCode))
+		b.reply(msg.ID, -32603, notAnAnswer(b.Endpoint, resp.StatusCode))
 		return
 	}
 	b.write(body)
+}
+
+// notAnAnswer says what an HTTP answer that is not MCP's means. A 502 to 504
+// is the proxy in front of the platform answering for it: the endpoint is
+// right and the platform is down or restarting.
+func notAnAnswer(endpoint string, status int) string {
+	if status >= http.StatusBadGateway && status <= http.StatusGatewayTimeout {
+		return fmt.Sprintf("%s is down or restarting (HTTP %d from the proxy in front of it) — try again in a minute",
+			endpoint, status)
+	}
+	return fmt.Sprintf("%s answered HTTP %d, not an MCP answer to this request — is the URL right?", endpoint, status)
 }
 
 // relayEvents passes on each message of an SSE response, in order, and

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -134,6 +135,24 @@ func TestParseArgsAcceptsFlagsAfterPositionals(t *testing.T) {
 	positional, err := parseArgs(fs, []string{"show", "shop", "--json"})
 	if err != nil || !*asJSON || strings.Join(positional, " ") != "show shop" {
 		t.Fatalf("got %v %v %v", positional, *asJSON, err)
+	}
+}
+
+// The proxy's page for a platform that is down or restarting (a deploy) is
+// not a wrong URL: cw says what it is.
+func TestAProxyPageSaysThePlatformIsDown(t *testing.T) {
+	for _, status := range []int{http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(status)
+			w.Write([]byte("<html>We'll be right back</html>"))
+		}))
+		t.Cleanup(server.Close)
+		h := newHarness(t, server)
+		code := h.run("servers")
+		if want := fmt.Sprintf("is down or restarting (HTTP %d", status); code != 1 ||
+			!strings.Contains(h.stderr.String(), want) || strings.Contains(h.stderr.String(), "is the URL right") {
+			t.Errorf("HTTP %d: exit %d, stderr %q", status, code, h.stderr)
+		}
 	}
 }
 

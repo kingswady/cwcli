@@ -13,6 +13,7 @@ package mcpbridge
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -300,8 +301,7 @@ func (b *Bridge) exchange(envelope map[string]json.RawMessage) ([]byte, error) {
 	} else if b.isAnswer(msg, body) {
 		return body, nil
 	}
-	return nil, fmt.Errorf("%s answered HTTP %d, not an MCP answer to this request — is the URL right?",
-		b.Endpoint, resp.StatusCode)
+	return nil, errors.New(notAnAnswer(b.Endpoint, resp.StatusCode))
 }
 
 // events are the data of each event in an SSE body.
