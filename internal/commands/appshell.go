@@ -99,7 +99,7 @@ func (a *App) appSSH(args []string) error {
 		return err
 	}
 	// -t: the forced shell needs a terminal; no command, the certificate names it.
-	return a.runSSH(append([]string{"-t"}, sshArgs(key, dir, kept, certificate, nil)...))
+	return a.signIn(append([]string{"-t"}, sshArgs(key, dir, kept, certificate, nil)...), dir, kept, certificate)
 }
 
 // serverOf is the id of the server app runs on: its key is CW_SERVER_SSH_<server id>.

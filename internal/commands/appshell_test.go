@@ -139,6 +139,24 @@ func TestAppShellKeepsACertificatePerMode(t *testing.T) {
 	}
 }
 
+// An app's kept certificate is let go the same way when ssh fails with it.
+func TestAppShellLetsAKeptCertificateGoWhenSSHFails(t *testing.T) {
+	var asked []string
+	h, _ := sshHarness(t, appShellPlatform(t, shellAppRecord(), &asked, signingShells(inAnHour())))
+	exits := []error{nil, sshExit(255), nil}
+	h.app.sshRunner = func([]string) error {
+		err := exits[0]
+		exits = exits[1:]
+		return err
+	}
+	for range 3 {
+		h.run("apps", "ssh", "shop")
+	}
+	if len(asked) != 2 || !strings.Contains(h.stderr.String(), "kept from an earlier sign-in") {
+		t.Errorf("%d requests, stderr %q: the run after the failure asks again", len(asked), h.stderr)
+	}
+}
+
 // The key is the one named for the app's server, which apps.get says.
 func TestAppShellSignsInWithItsServersKey(t *testing.T) {
 	var asked []string

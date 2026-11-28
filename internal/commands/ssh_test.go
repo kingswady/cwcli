@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -181,6 +182,79 @@ func TestSSHSendsTheReasonForRoot(t *testing.T) {
 	}
 	if strings.Join(asked, ",") != "root|disk full on /var" {
 		t.Errorf("asked for %q, want the trimmed reason", asked)
+	}
+}
+
+// A reason reaches the owners only with a new certificate: a kept one is not used.
+func TestSSHAsksForANewCertificateWithAReason(t *testing.T) {
+	var asked []string
+	h, _ := sshHarness(t, sshPlatform(t, inAnHour(), &asked))
+	for _, args := range [][]string{
+		{"servers", "ssh", "41", "-u", "root"},
+		{"servers", "ssh", "41", "-u", "root", "--reason", "restart postgres"},
+		{"servers", "ssh", "41", "-u", "root"},
+	} {
+		if code := h.run(args...); code != 0 {
+			t.Fatalf("%v: exit %d: %s", args, code, h.stderr)
+		}
+	}
+	if got := strings.Join(asked, ","); got != "root,root|restart postgres" {
+		t.Errorf("asked %q: the reason asks again, the run after it uses the kept one", got)
+	}
+}
+
+// sshExit is how ssh ended, as exec reports it.
+type sshExit int
+
+func (e sshExit) Error() string { return "exit status " + strconv.Itoa(int(e)) }
+func (e sshExit) ExitCode() int { return int(e) }
+
+// A revoked certificate is refused until it runs out and ssh says only
+// "Permission denied": when ssh fails with a kept one, cw lets it go.
+func TestSSHLetsAKeptCertificateGoWhenSSHFails(t *testing.T) {
+	var asked []string
+	h, _ := sshHarness(t, sshPlatform(t, inAnHour(), &asked))
+	exits := []error{nil, sshExit(255), nil}
+	h.app.sshRunner = func([]string) error {
+		err := exits[0]
+		exits = exits[1:]
+		return err
+	}
+	for i, want := range []int{0, 1, 0} {
+		if code := h.run("servers", "ssh", "41"); code != want {
+			t.Fatalf("run %d: exit %d, want %d: %s", i+1, code, want, h.stderr)
+		}
+	}
+	if len(asked) != 2 {
+		t.Errorf("%d requests, want 2: the third run asks for a new certificate", len(asked))
+	}
+	if !strings.Contains(h.stderr.String(), "ssh failed with certificate 7, kept from an earlier sign-in") {
+		t.Errorf("stderr %q does not say why the next run asks again", h.stderr)
+	}
+}
+
+// A certificate cw just got is not let go (ssh failed for another reason),
+// nor a kept one when only the command failed.
+func TestSSHKeepsTheCertificateWhenSSHDidNotFail(t *testing.T) {
+	for name, exits := range map[string][]error{
+		"a new certificate":  {sshExit(255), nil},
+		"the command failed": {nil, sshExit(1), nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var asked []string
+			h, _ := sshHarness(t, sshPlatform(t, inAnHour(), &asked))
+			h.app.sshRunner = func([]string) error {
+				err := exits[0]
+				exits = exits[1:]
+				return err
+			}
+			for range exits {
+				h.run("servers", "ssh", "41", "-u", "root", "--", "false")
+			}
+			if len(asked) != 1 || strings.Contains(h.stderr.String(), "let it go") {
+				t.Errorf("%d requests, stderr %q: the kept certificate stays", len(asked), h.stderr)
+			}
+		})
 	}
 }
 

@@ -28,6 +28,9 @@ import (
 // certificateMargin is how long a kept certificate must still be valid to be used again.
 const certificateMargin = time.Minute
 
+// sshFailed is ssh's own exit status: it could not sign in, or the connection broke.
+const sshFailed = 255
+
 // keyVariable names the private key cw servers ssh signs in with when --key is not
 // given: keyVariable_<server id> for one server, else keyVariable for every
 // server. cw never guesses a key: someone with several is signed in with the one they named.
@@ -67,6 +70,8 @@ type sshCertificate struct {
 	Server recordRef `json:"server,omitempty"`
 	// PublicKey is the key it was signed for, so another --key asks again.
 	PublicKey string `json:"public_key,omitempty"`
+	// reused: it came from cw's folder, not from the platform just now.
+	reused bool
 }
 
 // sshServer is what cw servers ssh signs in to: the server's id, the server as typed, and the account.
@@ -99,6 +104,9 @@ type certificateRequest struct {
 	path    string         // where it is asked for
 	body    map[string]any // what is asked besides the public key
 	hint    string         // the line a 403 access_denied adds: what the certificate takes
+	// fresh asks the platform whatever cw keeps: a root sign-in with a reason,
+	// which only a new certificate carries to the server's owners.
+	fresh bool
 	// signed refuses an answer that is not what was asked (an older platform
 	// signs something else) and says what it opens: "for odoo on web-1".
 	signed func(sshCertificate) (string, error)
@@ -117,10 +125,11 @@ func (a *App) ssh(args []string) error {
 			"-u root signs in to root instead, which takes an operator or an Admin of the namespace that owns\n"+
 			"the server's cloud provider. A command after -- needs -u root: the odoo shell opens a shell only.\n"+
 			"A root certificate is mailed to the server's owners (to the operators for staff); --reason\n"+
-			"says why in that mail.\n\n"+
+			"says why in that mail, and asks for a new certificate so that the mail goes out.\n\n"+
 			"The certificate lasts as long as the server's setting says (15 minutes by default); cw keeps it\n"+
-			"per server and account and asks again once it runs out. Register the key in My Settings → SSH\n"+
-			"Keys first; the token needs servers.ssh_certificate ticked; the server's sign-in log names you.\n"+
+			"per server and account and asks again once it runs out, or once ssh failed with it (revoked).\n"+
+			"Register the key in My Settings → SSH Keys first; the token needs servers.ssh_certificate\n"+
+			"ticked; the server's sign-in log names you.\n"+
 			"A key without its .pub has its public key read by ssh-keygen -y (an encrypted key asks for its\n"+
 			"passphrase).\n\n"+
 			"The key is --key, else the path in "+keyVariable+"_<server id> (the id cw servers lists, as in\n"+
@@ -166,7 +175,7 @@ func (a *App) ssh(args []string) error {
 	if err != nil {
 		return err
 	}
-	return a.runSSH(sshArgs(key, dir, server.kept(), certificate, command))
+	return a.signIn(sshArgs(key, dir, server.kept(), certificate, command), dir, server.kept(), certificate)
 }
 
 // splitCommand parts cw's own arguments from the command after "--", which is ssh's.
@@ -270,6 +279,7 @@ func (a *App) serverCertificate(c *platform.Client, server sshServer, public, di
 		path:    "/servers/" + server.id + "/ssh-certificate",
 		body:    server.body(),
 		hint:    accessHints[server.account],
+		fresh:   server.reason != "",
 		signed: func(fresh sshCertificate) (string, error) {
 			// A platform from before accounts takes no user and signs root.
 			if signed := cmp.Or(fresh.Account, rootAccount); signed != server.account {
@@ -286,8 +296,9 @@ func (a *App) serverCertificate(c *platform.Client, server sshServer, public, di
 func (a *App) certificate(c *platform.Client, req certificateRequest, public, dir string) (sshCertificate, error) {
 	metaPath := keptPath(dir, req.kept, ".json")
 	var kept sshCertificate
-	if raw, err := os.ReadFile(metaPath); err == nil && json.Unmarshal(raw, &kept) == nil {
+	if raw, err := os.ReadFile(metaPath); err == nil && !req.fresh && json.Unmarshal(raw, &kept) == nil {
 		if sameKey(kept.PublicKey, public) && a.clock().Add(certificateMargin).Before(validUntil(kept.ValidBefore)) {
+			kept.reused = true
 			return kept, nil
 		}
 	}
@@ -375,6 +386,22 @@ func sshArgs(key, dir, kept string, certificate sshCertificate, command []string
 // cw's folder on macOS is under "Application Support".
 func optionPath(path string) string {
 	return `"` + path + `"`
+}
+
+// signIn runs ssh with certificate, kept under kept. When ssh itself fails with
+// a certificate kept from an earlier sign-in, cw lets it go: a revoked one is
+// refused until it runs out, and ssh says only "Permission denied", so the
+// next run asks for a new one. ssh fails the same way when the connection
+// breaks, so cw never signs in again on its own.
+func (a *App) signIn(args []string, dir, kept string, certificate sshCertificate) error {
+	err := a.runSSH(args)
+	var exit interface{ ExitCode() int }
+	if certificate.reused && errors.As(err, &exit) && exit.ExitCode() == sshFailed &&
+		os.Remove(keptPath(dir, kept, ".json")) == nil {
+		fmt.Fprintf(a.stderr, "cw: ssh failed with certificate %s, kept from an earlier sign-in (revoked, or the "+
+			"connection broke); cw let it go: run the command again for a new one\n", certificate.Serial)
+	}
+	return err
 }
 
 // runSSH runs ssh in this terminal; tests replace it.

@@ -264,9 +264,11 @@ My Settings → SSH Keys. By default it opens the server's shell as odoo, the da
 terminal access to the server. `-u root` asks for root, which takes an operator or an Admin of the namespace
 that owns the server's cloud provider. A command after `--` needs `-u root`: the odoo shell opens a shell only.
 A root certificate is emailed to the server's owners (to the operators for staff); `--reason` says why in that
-email (it needs `-u root` and a platform that takes reasons).
-A certificate lasts as long as the server's setting says (15 minutes by default); cw keeps it per server and
-account and asks again once it runs out. (Before cw 0.18.0 this was `cw ssh`, which signed in as root.)
+email (it needs `-u root` and a platform that takes reasons), and always asks for a new certificate, so that the
+email goes out. A certificate lasts as long as the server's setting says (15 minutes by default); cw keeps it per
+server and account and asks again once it runs out. When ssh fails with a kept certificate (a revoked one is
+refused until it runs out, and ssh says only "Permission denied"), cw lets it go: run the command again for a new
+one. (Before cw 0.18.0 this was `cw ssh`, which signed in as root.)
 
 The key is `--key`, else the path in `CW_SERVER_SSH_<server id>` (the id `cw servers` lists), else the path in
 `CW_SERVER_SSH`. The token needs `servers.ssh_certificate` ticked.
